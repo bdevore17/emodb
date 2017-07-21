@@ -7,6 +7,8 @@ cluster: local_default
 
 migrator:
   migrateStatusTablePlacement: "app_global:migration"
+  writerMaxBatchSize: 51200 #50 kb
+  migrateApiKey: "local_admin"
 #  pendingReadRangeQueueName: pendingQueue
 #  completeReadRangeQueueName: completeQueue
 

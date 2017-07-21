@@ -22,12 +22,12 @@ public class MigratorWriter implements Closeable {
         _migratorTools = checkNotNull(migratorTools, "migratorTools");
     }
 
-    public void writeToBlockTable(String placement, List<MigrationScanResult> results) throws IOException {
+    public void writeToBlockTable(String placement, List<MigrationScanResult> results, int batchSize) throws IOException {
         if (_closed) {
             throw new IOException("Writer closed");
         }
 
-        _migratorTools.writeRows(placement, results.iterator());
+        _migratorTools.writeRows(placement, results.iterator(), batchSize);
     }
 
     @Override

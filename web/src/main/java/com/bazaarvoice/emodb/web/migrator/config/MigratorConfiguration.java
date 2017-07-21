@@ -48,6 +48,11 @@ public class MigratorConfiguration {
 
     @Valid
     @NotNull
+    @JsonProperty ("writerMaxBatchSize")
+    private Optional<Integer> _writerMaxBatchSize = Optional.absent();
+
+    @Valid
+    @NotNull
     @JsonProperty ("pendingReadRangeQueueName")
     private Optional<String> _pendingReadRangeQueueName = Optional.absent();
 
@@ -117,6 +122,7 @@ public class MigratorConfiguration {
         return this;
     }
 
-
-
+    public Optional<Integer> getWriterMaxBatchSize() {
+        return _writerMaxBatchSize;
+    }
 }

@@ -9,6 +9,7 @@ import com.bazaarvoice.emodb.web.scanner.rangescan.RangeScanUploaderResult;
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.base.Optional;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -18,6 +19,7 @@ import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Inject;
+import com.google.inject.name.Named;
 import io.dropwizard.lifecycle.Managed;
 import org.joda.time.DateTime;
 import org.joda.time.Duration;
@@ -48,6 +50,8 @@ public class LocalRangeMigrator implements Managed {
     // Stop migrating and resplit if we receive three times the number of rows expected in a single task.
     private final static float RESPLIT_FACTOR = 3;
 
+    private final static int DEFAULT_WRITER_MAX_BATCH_SIZE = 5 * 1024;
+
     private final static Logger _log = LoggerFactory.getLogger(LocalRangeMigrator.class);
 
     private final Counter _activeRangeMigrations;
@@ -63,6 +67,7 @@ public class LocalRangeMigrator implements Managed {
 
     private final int _threadCount;
     private final int _batchSize;
+    private final int _writerMaxBatchSize;
     private final MigratorTools _migratorTools;
     private final MigratorWriterFactory _writerFactory;
     private final Set<ExecutorService> _batchServices = Collections.synchronizedSet(Sets.<ExecutorService>newIdentityHashSet());
@@ -72,19 +77,20 @@ public class LocalRangeMigrator implements Managed {
     private volatile boolean _shutdown = true;
 
     @Inject
-    public LocalRangeMigrator(MigratorTools migratorTools, MigratorWriterFactory writerFactory, LifeCycleRegistry lifecyle, MetricRegistry metricRegistry) {
+    public LocalRangeMigrator(MigratorTools migratorTools, MigratorWriterFactory writerFactory, LifeCycleRegistry lifecyle, MetricRegistry metricRegistry, @Named ("writerMaxBatchSize") Optional<Integer> writerMaxBatchSize) {
         this(migratorTools, writerFactory, lifecyle, metricRegistry, PIPELINE_THREAD_COUNT, PIPELINE_BATCH_SIZE,
-                WAIT_FOR_ALL_TRANSFERS_COMPLETE_CHECK_INTERVAL, WAIT_FOR_ALL_TRANSFERS_COMPLETE_TIMEOUT);
+                WAIT_FOR_ALL_TRANSFERS_COMPLETE_CHECK_INTERVAL, WAIT_FOR_ALL_TRANSFERS_COMPLETE_TIMEOUT, writerMaxBatchSize.or(DEFAULT_WRITER_MAX_BATCH_SIZE));
     }
 
     public LocalRangeMigrator(MigratorTools migratorTools, MigratorWriterFactory writerFactory, LifeCycleRegistry lifecycle, final MetricRegistry metricRegistry, int threadCount,
-                              int batchSize, Duration waitForAllTransfersCompleteCheckInterval, Duration waitForAllTransfersCompleteTimeout) {
+                              int batchSize, Duration waitForAllTransfersCompleteCheckInterval, Duration waitForAllTransfersCompleteTimeout, int writerMaxBatchSize) {
         _migratorTools = migratorTools;
         _writerFactory = writerFactory;
         _threadCount = threadCount;
         _batchSize = batchSize;
         _waitForAllTransfersCompleteCheckInterval = waitForAllTransfersCompleteCheckInterval;
         _waitForAllTransfersCompleteTimeout = waitForAllTransfersCompleteTimeout;
+        _writerMaxBatchSize = writerMaxBatchSize;
 
         _activeRangeMigrations = metricRegistry.counter(MetricRegistry.name("bv.emodb.migrator", "Migrator", "active-range-migrations"));
         _blockedRangeMigrations = metricRegistry.counter(MetricRegistry.name("bv.emodb.migrator", "Migrator", "blocked-range-migrations"));
@@ -345,7 +351,7 @@ public class LocalRangeMigrator implements Managed {
         String placement = context.getPlacement();
 
         try {
-            migratorWriter.writeToBlockTable(placement, batch.getResults());
+            migratorWriter.writeToBlockTable(placement, batch.getResults(), _writerMaxBatchSize);
 
 //            for (Iterator<MigrationScanResult> resultIter = batch.getResults().iterator();
 //                 resultIter.hasNext() && context.continueProcessing(); ) {

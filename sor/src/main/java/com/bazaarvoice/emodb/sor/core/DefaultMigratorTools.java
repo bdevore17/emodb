@@ -21,12 +21,14 @@ public class DefaultMigratorTools implements MigratorTools {
         _migratorWriterDao = checkNotNull(migratorWriterDAO, "migratorWriterDao");
     }
 
-    public void writeRows(String placement, Iterator<MigrationScanResult> results) {
+    @Override
+    public void writeRows(String placement, Iterator<MigrationScanResult> results, int batchSize) {
         checkNotNull(placement, "placement");
         checkNotNull(results, "rows");
-        _migratorWriterDao.writeRows(placement, results);
+        _migratorWriterDao.writeRows(placement, results, batchSize);
     }
 
+    @Override
     public Iterator<MigrationScanResult> readRows(String placement, ScanRange scanRange) {
         checkNotNull(placement, "placement");
         checkNotNull(scanRange, scanRange);

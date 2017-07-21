@@ -216,12 +216,12 @@ public class CqlDataWriterDAO implements DataWriterDAO, MigratorWriterDAO {
     }
 
     @Override
-    public void writeRows(String placementName, Iterator<MigrationScanResult> results) {
+    public void writeRows(String placementName, Iterator<MigrationScanResult> results, int batchSize) {
         DeltaPlacement placement = (DeltaPlacement) _placementCache.get(placementName);
         Session session = placement.getKeyspace().getCqlSession();
         PeekingIterator<MigrationScanResult> iterator = Iterators.peekingIterator(results);
 
-        int batchSize = 0;
+        int currentBatchSize = 0;
 
         // nothing to write so return immediately
         if (!iterator.hasNext()) {
@@ -239,7 +239,7 @@ public class CqlDataWriterDAO implements DataWriterDAO, MigratorWriterDAO {
             encodedDelta.position(_deltaPrefixLength);
             encodedDelta.put(delta);
             encodedDelta.position(0);
-            batchSize += encodedDelta.remaining() + 16;
+            currentBatchSize += encodedDelta.remaining() + 16;
             ByteBuffer rowKey = result.getRowKey();
             insertBlockedDeltas(batchStatement, placement.getBlockedDeltaTableDDL(), ConsistencyLevel.LOCAL_QUORUM, rowKey, result.getChangeId(), encodedDelta);
 
@@ -247,10 +247,10 @@ public class CqlDataWriterDAO implements DataWriterDAO, MigratorWriterDAO {
                 break;
             }
 
-            if (batchSize > 5 * 1024 || !iterator.peek().getRowKey().equals(rowKey)) {
+            if (currentBatchSize > batchSize || !iterator.peek().getRowKey().equals(rowKey)) {
                 session.execute(batchStatement);
                 batchStatement = new BatchStatement();
-                batchSize = 0;
+                currentBatchSize = 0;
             }
         }
 
