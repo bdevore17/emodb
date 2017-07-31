@@ -20,7 +20,6 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
-import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import org.apache.commons.lang3.StringUtils;
 
@@ -36,10 +35,6 @@ import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
 
 
 public class CqlDataWriterDAO implements DataWriterDAO {
-
-    private final static int ROW_KEY_SIZE = 8;
-    private final static int CHANGE_ID_SIZE = 8;
-    private final static int MAX_STATEMENT_SIZE = 1 * 1024 * 1024; // 1Mb
 
     private final int _deltaBlockSize;
     private final String _deltaPrefix;
@@ -140,7 +135,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
                                  WriteConsistency consistency, DeltaPlacement placement,
                                  CassandraKeyspace keyspace) {
 
-        // TODO: implement checks to ensure we are under the transport size OR drastically increase batch_size_warn_in_kb
+        // TODO: drastically increase batch_size_warn_in_kb in Cassandra.yaml. This is safe because all changes are to same partition key
 
         // Add the compaction record
         ByteBuffer encodedBlockedCompaction = ByteBuffer.wrap(_changeEncoder.encodeCompaction(compaction, new StringBuilder(_deltaPrefix)).toString().getBytes());
