@@ -189,7 +189,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
         TableDDL deltaTableDDL = placement.getDeltaTableDDL();
 
         BatchStatement oldTableStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
-        BatchStatement newTableStatement = new BatchStatement(BatchStatement.Type.LOGGED);
+        BatchStatement newTableStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
 
         for (UUID change : changesToDelete) {
             oldTableStatement.add(deleteStatement(deltaTableDDL, rowKey, change, consistencyLevel));
