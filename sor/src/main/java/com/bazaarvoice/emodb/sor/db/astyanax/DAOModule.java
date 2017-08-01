@@ -3,8 +3,6 @@ package com.bazaarvoice.emodb.sor.db.astyanax;
 import com.bazaarvoice.emodb.sor.DataStoreConfiguration;
 import com.bazaarvoice.emodb.sor.db.DataReaderDAO;
 import com.bazaarvoice.emodb.sor.db.DataWriterDAO;
-import com.bazaarvoice.emodb.sor.db.MigratorReaderDAO;
-import com.bazaarvoice.emodb.sor.db.MigratorWriterDAO;
 import com.bazaarvoice.emodb.sor.db.cql.CqlReaderDAODelegate;
 import com.bazaarvoice.emodb.sor.db.cql.CqlWriterDAODelegate;
 import com.bazaarvoice.emodb.table.db.astyanax.DataCopyDAO;
@@ -12,7 +10,6 @@ import com.bazaarvoice.emodb.table.db.astyanax.DataPurgeDAO;
 import com.google.inject.PrivateModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
-import com.google.inject.name.Names;
 
 /**
  * Guice module for DAO implementations.  Separate from {@link com.bazaarvoice.emodb.sor.DataStoreModule} to allow
@@ -36,8 +33,6 @@ public class DAOModule extends PrivateModule {
         bind(DataWriterDAO.class).to(CqlDataWriterDAO.class).asEagerSingleton();
         bind(DataCopyDAO.class).to(AstyanaxDataReaderDAO.class).asEagerSingleton();
         bind(DataPurgeDAO.class).to(AstyanaxDataWriterDAO.class).asEagerSingleton();
-        bind(MigratorWriterDAO.class).to(CqlDataWriterDAO.class).asEagerSingleton();
-        bind(MigratorReaderDAO.class).to(CqlDataReaderDAO.class).asEagerSingleton();
 
         // Explicit bindings so objects don't get created as a just-in-time binding in the root injector.
         // This needs to be done for just about anything that has only public dependencies.
@@ -48,8 +43,7 @@ public class DAOModule extends PrivateModule {
         expose(DataWriterDAO.class);
         expose(DataCopyDAO.class);
         expose(DataPurgeDAO.class);
-        expose(MigratorReaderDAO.class);
-        expose(MigratorWriterDAO.class);
+
     }
 
     @Provides

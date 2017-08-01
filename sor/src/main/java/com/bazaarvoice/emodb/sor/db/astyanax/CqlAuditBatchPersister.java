@@ -14,7 +14,7 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.ttl;
 
-public class CqlAuditBatchPersister implements AuditBatchPersister{
+public class CqlAuditBatchPersister implements AuditBatchPersister {
 
     private BatchStatement _batchStatement;
     private TableDDL _tableDDL;

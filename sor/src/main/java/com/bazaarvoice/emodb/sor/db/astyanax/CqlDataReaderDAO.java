@@ -24,20 +24,26 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.codahale.metrics.annotation.Timed;
-import com.datastax.driver.core.ConsistencyLevel;
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
-import com.datastax.driver.core.Session;
-import com.datastax.driver.core.Statement;
+import com.datastax.driver.core.*;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.datastax.driver.core.querybuilder.Select;
 import com.datastax.driver.core.utils.MoreFutures;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.*;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
-import com.google.common.collect.*;
+import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.BoundType;
+import com.google.common.collect.FluentIterable;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Ordering;
+import com.google.common.collect.PeekingIterator;
+import com.google.common.collect.Range;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
@@ -50,28 +56,16 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.nio.ByteBuffer;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
-import static com.datastax.driver.core.querybuilder.QueryBuilder.asc;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.desc;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.gt;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.gte;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.in;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.lt;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.lte;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.token;
+import static com.datastax.driver.core.querybuilder.QueryBuilder.*;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.bazaarvoice.emodb.sor.db.DAOUtils.removePrefix;
 
 // Delegates to AstyanaxReaderDAO for non-CQL stuff
 // Once we transition fully, we will stop delegating to Astyanax
-public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
+public class CqlDataReaderDAO implements DataReaderDAO {
 
     private final Logger _log = LoggerFactory.getLogger(CqlDataReaderDAO.class);
 
@@ -83,6 +77,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
     private static final int ROW_KEY_RESULT_SET_COLUMN = 0;
     private static final int CHANGE_ID_RESULT_SET_COLUMN = 1;
     private static final int VALUE_RESULT_SET_COLUMN = 2;
+    private static final int BLOCK_RESULT_SET_COLUMN = 3;
 
     private final DataReaderDAO _astyanaxReaderDAO;
     private final ChangeEncoder _changeEncoder;
@@ -90,6 +85,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
     private final CqlDriverConfiguration _driverConfig;
     private final Meter _randomReadMeter;
     private final Timer _readBatchTimer;
+    private final int _deltaPrefixLength;
 
     // Support AB testing of various uses of the CQL driver versus the older but (at this point) more vetted Astyanax driver.
     private volatile Supplier<Boolean> _useCqlForMultiGets = Suppliers.ofInstance(true);
@@ -98,13 +94,14 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
     @Inject
     public CqlDataReaderDAO(@CqlReaderDAODelegate DataReaderDAO delegate, PlacementCache placementCache,
                             CqlDriverConfiguration driverConfig, ChangeEncoder changeEncoder,
-                            MetricRegistry metricRegistry) {
+                            MetricRegistry metricRegistry, @PrefixLength int deltaPrefixLength) {
         _astyanaxReaderDAO = checkNotNull(delegate, "delegate");
         _placementCache = placementCache;
         _driverConfig = driverConfig;
         _changeEncoder = changeEncoder;
         _randomReadMeter = metricRegistry.meter(getMetricName("random-reads"));
         _readBatchTimer = metricRegistry.timer(getMetricName("readBatch"));
+        _deltaPrefixLength = deltaPrefixLength;
     }
 
     private String getMetricName(String name) {
@@ -176,9 +173,9 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         checkNotNull(key, "key");
         checkNotNull(consistency, "consistency");
 
-        TableDDL tableDDL = placement.getDeltaTableDDL();
+        BlockedDeltaTableDDL tableDDL = placement.getBlockedDeltaTableDDL();
 
-        Statement statement = selectFrom(tableDDL)
+        Statement statement = selectDeltaFrom(tableDDL)
                 .where(eq(tableDDL.getRowKeyColumnName(), rowKey))
                 .setConsistencyLevel(SorConsistencies.toCql(consistency));
 
@@ -252,16 +249,19 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
 
         return new CachingRowGroupIterator(deltaRowGroupResultSetIterator, _driverConfig.getRecordCacheSize(), _driverConfig.getRecordSoftCacheSize());
     }
-
     /**
      * Creates a Record instance for a given key and list of rows.  All rows must be from the same Cassandra row;
      * in other words, it is expected that row.getBytesUnsafe(ROW_KEY_RESULT_SET_COLUMN) returns the same value for
      * each row in rows.
      */
     private Record newRecordFromCql(Key key, Iterable<Row> rows) {
-        Iterator<Map.Entry<UUID, Change>> changeIter = decodeChangesFromCql(rows.iterator());
-        Iterator<Map.Entry<UUID, Compaction>> compactionIter = decodeCompactionsFromCql(rows.iterator());
-        Iterator<RecordEntryRawMetadata> rawMetadataIter = rawMetadataFromCql(rows.iterator());
+        Session session = ((AstyanaxTable) key.getTable()).getReadStorage().getPlacement().getKeyspace().getCqlSession();
+        ProtocolVersion protocolVersion = session.getCluster().getConfiguration().getProtocolOptions().getProtocolVersion();
+        CodecRegistry codecRegistry = session.getCluster().getConfiguration().getCodecRegistry();
+
+        Iterator<Map.Entry<UUID, Change>> changeIter = decodeChangesFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, CHANGE_ID_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength, protocolVersion, codecRegistry));
+        Iterator<Map.Entry<UUID, Compaction>> compactionIter = decodeCompactionsFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, CHANGE_ID_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength, protocolVersion, codecRegistry));
+        Iterator<RecordEntryRawMetadata> rawMetadataIter = rawMetadataFromCql(new CqlDeltaIterator(rows.iterator(), BLOCK_RESULT_SET_COLUMN, CHANGE_ID_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, false, _deltaPrefixLength, protocolVersion, codecRegistry));
 
         return new RecordImpl(key, compactionIter, changeIter, rawMetadataIter);
     }
@@ -271,7 +271,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
      */
     private Iterator<Map.Entry<UUID, Change>> decodeChangesFromCql(final Iterator<Row> iter) {
         return Iterators.transform(iter, row ->
-                Maps.immutableEntry(getChangeId(row), _changeEncoder.decodeChange(getChangeId(row), getValue(row))));
+                Maps.immutableEntry(getChangeId(row), _changeEncoder.decodeChange(getChangeId(row), removePrefix(getValue(row), _deltaPrefixLength))));
     }
 
     /**
@@ -283,7 +283,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
             protected Map.Entry<UUID, Compaction> computeNext() {
                 while (iter.hasNext()) {
                     Row row = iter.next();
-                    Compaction compaction = _changeEncoder.decodeCompaction(getValue(row));
+                    Compaction compaction = _changeEncoder.decodeCompaction(removePrefix(getValue(row), _deltaPrefixLength));
                     if (compaction != null) {
                         return Maps.immutableEntry(getChangeId(row), compaction);
                     }
@@ -299,7 +299,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
     private Iterator<RecordEntryRawMetadata> rawMetadataFromCql(final Iterator<Row> iter) {
         return Iterators.transform(iter, row -> new RecordEntryRawMetadata()
                 .withTimestamp(TimeUUIDs.getTimeMillis(getChangeId(row)))
-                .withSize(getValue(row).remaining()));
+                .withSize(removePrefix(getValue(row), _deltaPrefixLength).remaining()));
     }
 
     /**
@@ -352,9 +352,9 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
             rawKeyMap.put(entry.getKey(), entry.getValue());
         }
 
-        TableDDL tableDDL = placement.getDeltaTableDDL();
+        BlockedDeltaTableDDL tableDDL = placement.getBlockedDeltaTableDDL();
 
-        Statement statement = selectFrom(tableDDL)
+        Statement statement = selectDeltaFrom(tableDDL)
                 .where(in(tableDDL.getRowKeyColumnName(), keys))
                 .setConsistencyLevel(SorConsistencies.toCql(consistency));
 
@@ -398,12 +398,25 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
                 .from(tableDDL.getTableMetadata());
     }
 
+    private Select selectDeltaFrom(BlockedDeltaTableDDL tableDDL) {
+        return QueryBuilder.select()
+                .column(tableDDL.getRowKeyColumnName())     // ROW_KEY_RESULT_SET_COLUMN
+                .column(tableDDL.getChangeIdColumnName())   // CHANGE_ID_RESULT_SET_COLUMN
+                .column(tableDDL.getValueColumnName())      // VALUE_RESULT_SET_COLUMN
+                .column(tableDDL.getBlockColumnName())      // BLOCK_ID_RESULT_SET COLUMN
+                .from(tableDDL.getTableMetadata());
+    }
+
     private ByteBuffer getKey(Row row) {
         return row.getBytesUnsafe(ROW_KEY_RESULT_SET_COLUMN);
     }
 
     private UUID getChangeId(Row row) {
         return row.getUUID(CHANGE_ID_RESULT_SET_COLUMN);
+    }
+
+    private int getBlock(Row row) {
+        return row.getInt(BLOCK_RESULT_SET_COLUMN);
     }
 
     private ByteBuffer getValue(Row row) {
@@ -433,7 +446,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         return iter;
     }
 
-    @Timed (name = "bv.emodb.sor.CqlDataReaderDAO.scan", absolute = true)
+    @Timed(name = "bv.emodb.sor.CqlDataReaderDAO.scan", absolute = true)
     @Override
     public Iterator<Record> scan(Table tbl, @Nullable String fromKeyExclusive, final LimitCounter ignore_limit,
                                  final ReadConsistency consistency) {
@@ -507,9 +520,9 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         // around which is absolutely *not* what we want.
         checkArgument(AstyanaxStorage.compareKeys(startToken, endToken) < 0, "Cannot scan rows which loop from maximum- to minimum-token");
 
-        TableDDL tableDDL = placement.getDeltaTableDDL();
+        BlockedDeltaTableDDL tableDDL = placement.getBlockedDeltaTableDDL();
 
-        Statement statement = selectFrom(tableDDL)
+        Statement statement = selectDeltaFrom(tableDDL)
                 .where(gt(token(tableDDL.getRowKeyColumnName()), startToken))
                 .and(lte(token(tableDDL.getRowKeyColumnName()), endToken))
                 .setConsistencyLevel(SorConsistencies.toCql(consistency));
@@ -708,7 +721,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         protected ResultSet queryRowGroupRowsAfter(Row row) {
             Range<RangeTimeUUID> columnRange = Range.greaterThan(new RangeTimeUUID(getChangeId(row)));
             return columnScan(_placement, _placement.getDeltaTableDDL(), getKey(row),
-                    columnRange, true, Integer.MAX_VALUE, _consistency);
+                    columnRange, true, _consistency);
         }
     }
 
@@ -717,9 +730,9 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
      * parameterized.
      */
     private ResultSet columnScan(DeltaPlacement placement, TableDDL tableDDL, ByteBuffer rowKey, Range<RangeTimeUUID> columnRange,
-                                 boolean ascending, int limit, ConsistencyLevel consistency) {
+                                 boolean ascending, ConsistencyLevel consistency) {
 
-        Select.Where where = selectFrom(tableDDL)
+        Select.Where where = (tableDDL == placement.getDeltaTableDDL() ? selectDeltaFrom(placement.getBlockedDeltaTableDDL()) : selectFrom(tableDDL))
                 .where(eq(tableDDL.getRowKeyColumnName(), rowKey));
 
         if (columnRange.hasLowerBound()) {
@@ -740,7 +753,6 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
 
         Statement statement = where
                 .orderBy(ascending ? asc(tableDDL.getChangeIdColumnName()) : desc(tableDDL.getChangeIdColumnName()))
-                .limit(limit)
                 .setFetchSize(_driverConfig.getSingleRowFetchSize())
                 .setConsistencyLevel(consistency);
 
@@ -772,7 +784,10 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         Iterator<Change> deltas = Iterators.emptyIterator();
         if (includeContentData) {
             TableDDL deltaDDL = placement.getDeltaTableDDL();
-            deltas = decodeColumns(columnScan(placement, deltaDDL, rowKey, columnRange, !reversed, scaledLimit, consistency).iterator());
+            ProtocolVersion protocolVersion = placement.getKeyspace().getCqlSession().getCluster().getConfiguration().getProtocolOptions().getProtocolVersion();
+            CodecRegistry codecRegistry = placement.getKeyspace().getCqlSession().getCluster().getConfiguration().getCodecRegistry();
+
+            deltas = decodeDeltaColumns(Iterators.limit(new CqlDeltaIterator(columnScan(placement, deltaDDL, rowKey, columnRange, !reversed, consistency).iterator(), BLOCK_RESULT_SET_COLUMN, CHANGE_ID_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN, reversed, _deltaPrefixLength, protocolVersion, codecRegistry), scaledLimit));
         }
 
         // Read Audit objects
@@ -780,9 +795,9 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         Iterator<Change> deltaHistory = Iterators.emptyIterator();
         if (includeAuditInformation) {
             TableDDL auditDDL = placement.getAuditTableDDL();
-            audits = decodeColumns(columnScan(placement, auditDDL, rowKey, columnRange, !reversed, scaledLimit, consistency).iterator());
+            audits = decodeColumns(Iterators.limit(columnScan(placement, auditDDL, rowKey, columnRange, !reversed, consistency).iterator(), scaledLimit));
             TableDDL deltaHistoryDDL = placement.getDeltaHistoryTableDDL();
-            deltaHistory = decodeColumns(columnScan(placement, deltaHistoryDDL, rowKey, columnRange, !reversed, scaledLimit, consistency).iterator());
+            deltaHistory = decodeColumns(Iterators.limit(columnScan(placement, deltaHistoryDDL, rowKey, columnRange, !reversed, consistency).iterator(), scaledLimit));
         }
 
         Iterator<Change> deltaPlusAudit = MergeIterator.merge(deltas, audits, reversed);
@@ -798,7 +813,7 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
         Range<RangeTimeUUID> columnRange = toRange(start, end, true);
         ConsistencyLevel consistency = SorConsistencies.toCql(readConsistency);
         TableDDL deltaHistoryDDL = placement.getDeltaHistoryTableDDL();
-        return decodeColumns(columnScan(placement, deltaHistoryDDL, rowKey, columnRange, false, Integer.MAX_VALUE, consistency).iterator());
+        return decodeColumns(columnScan(placement, deltaHistoryDDL, rowKey, columnRange, false, consistency).iterator());
     }
 
     /**
@@ -806,6 +821,10 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
      */
     private Iterator<Change> decodeColumns(Iterator<Row> iter) {
         return Iterators.transform(iter, row -> _changeEncoder.decodeChange(getChangeId(row), getValue(row)));
+    }
+
+    private Iterator<Change> decodeDeltaColumns(Iterator<Row> iter) {
+        return Iterators.transform(iter, row -> _changeEncoder.decodeChange(getChangeId(row), removePrefix(getValue(row), _deltaPrefixLength)));
     }
 
     /**
@@ -908,44 +927,5 @@ public class CqlDataReaderDAO implements DataReaderDAO, MigratorReaderDAO {
     @Override
     public long count(Table table, @Nullable Integer limit, ReadConsistency consistency) {
         return _astyanaxReaderDAO.count(table, limit, consistency);
-    }
-
-    private Iterator<Iterable<Row>> migrationScan(DeltaPlacement placement, ByteBufferRange keyRange,
-                                            ReadConsistency consistency) {
-        ByteBuffer startToken = keyRange.getStart();
-        ByteBuffer endToken = keyRange.getEnd();
-
-        // Note: if Cassandra is asked to perform a token range query where start >= end it will wrap
-        // around which is absolutely *not* what we want.
-        checkArgument(AstyanaxStorage.compareKeys(startToken, endToken) < 0, "Cannot migrate rows which loop from maximum- to minimum-token");
-
-        TableDDL tableDDL = placement.getDeltaTableDDL();
-
-        // Our query needs to be inclusive on both sides so that we ensure that we get all records in the event of a re-split
-        Statement statement = selectFrom(tableDDL)
-                .where(gte(token(tableDDL.getRowKeyColumnName()), startToken))
-                .and(lte(token(tableDDL.getRowKeyColumnName()), endToken))
-                .setConsistencyLevel(SorConsistencies.toCql(consistency));
-
-        return deltaQueryAsync(placement, statement, false, "Failed to scan (for migration) token range [%s, %s] for %s",
-                ByteBufferUtil.bytesToHex(startToken), ByteBufferUtil.bytesToHex(endToken),
-                "multiple tables");
-    }
-
-    @Override
-    public Iterator<MigrationScanResult> readRows(String placementName, ScanRange scanRange) {
-        final DeltaPlacement placement = (DeltaPlacement) _placementCache.get(placementName);
-        List<ScanRange> ranges = scanRange.unwrapped();
-
-        return touch(FluentIterable.from(ranges)
-        .transformAndConcat(rowRange -> scanRows(placement, rowRange.asByteBufferRange(), ReadConsistency.STRONG)).iterator());
-    }
-
-    private Iterable<MigrationScanResult> scanRows(final DeltaPlacement placement, final ByteBufferRange rowRange, final ReadConsistency consistency) {
-        return () -> {
-            Iterator<Iterator<Row>> rowIterators = Iterators.transform(migrationScan(placement, rowRange, consistency), iterable -> iterable.iterator());
-            Iterator<Row> rows = Iterators.concat(rowIterators);
-            return Iterators.transform(rows, row -> new MigrationScanResult(row, ROW_KEY_RESULT_SET_COLUMN, CHANGE_ID_RESULT_SET_COLUMN, VALUE_RESULT_SET_COLUMN));
-        };
     }
 }
