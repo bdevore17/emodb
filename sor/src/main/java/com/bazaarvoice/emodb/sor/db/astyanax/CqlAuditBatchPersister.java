@@ -14,7 +14,7 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.ttl;
 
-public class CqlAuditBatchPersister implements AuditBatchPersister {
+public class CqlAuditBatchPersister implements AuditBatchPersister{
 
     private BatchStatement _batchStatement;
     private TableDDL _tableDDL;
@@ -22,7 +22,7 @@ public class CqlAuditBatchPersister implements AuditBatchPersister {
     private ChangeEncoder _changeEncoder;
     private AuditStore _auditStore;
     private CqlAuditBatchPersister(BatchStatement batchStatement, TableDDL tableDDL,
-                                   ChangeEncoder changeEncoder, AuditStore auditStore) {
+                                        ChangeEncoder changeEncoder, AuditStore auditStore) {
         _batchStatement = checkNotNull(batchStatement);
         _tableDDL = checkNotNull(tableDDL);
         _changeEncoder = checkNotNull(changeEncoder);
@@ -44,7 +44,7 @@ public class CqlAuditBatchPersister implements AuditBatchPersister {
     }
 
     public static CqlAuditBatchPersister build(BatchStatement batchStatement, TableDDL tableDDL,
-                                               ChangeEncoder changeEncoder, AuditStore auditStore) {
+                                                    ChangeEncoder changeEncoder, AuditStore auditStore) {
         return new CqlAuditBatchPersister(batchStatement, tableDDL, changeEncoder, auditStore);
     }
 }

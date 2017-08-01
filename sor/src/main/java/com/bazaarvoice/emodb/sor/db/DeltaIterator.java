@@ -194,3 +194,4 @@ class DeltaStitchingException extends RuntimeException {
         super("Found fragmented deltas without a compaction record ahead of them.");
     }
 }
+

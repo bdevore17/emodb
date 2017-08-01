@@ -173,7 +173,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
         checkNotNull(key, "key");
         checkNotNull(consistency, "consistency");
 
-        BlockedDeltaTableDDL tableDDL = placement.getBlockedDeltaTableDDL();
+        DeltaTableDDL tableDDL = placement.getDeltaTableDDL();
 
         Statement statement = selectDeltaFrom(tableDDL)
                 .where(eq(tableDDL.getRowKeyColumnName(), rowKey))
@@ -352,7 +352,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
             rawKeyMap.put(entry.getKey(), entry.getValue());
         }
 
-        BlockedDeltaTableDDL tableDDL = placement.getBlockedDeltaTableDDL();
+        DeltaTableDDL tableDDL = placement.getDeltaTableDDL();
 
         Statement statement = selectDeltaFrom(tableDDL)
                 .where(in(tableDDL.getRowKeyColumnName(), keys))
@@ -398,7 +398,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
                 .from(tableDDL.getTableMetadata());
     }
 
-    private Select selectDeltaFrom(BlockedDeltaTableDDL tableDDL) {
+    private Select selectDeltaFrom(DeltaTableDDL tableDDL) {
         return QueryBuilder.select()
                 .column(tableDDL.getRowKeyColumnName())     // ROW_KEY_RESULT_SET_COLUMN
                 .column(tableDDL.getChangeIdColumnName())   // CHANGE_ID_RESULT_SET_COLUMN
@@ -520,7 +520,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
         // around which is absolutely *not* what we want.
         checkArgument(AstyanaxStorage.compareKeys(startToken, endToken) < 0, "Cannot scan rows which loop from maximum- to minimum-token");
 
-        BlockedDeltaTableDDL tableDDL = placement.getBlockedDeltaTableDDL();
+        DeltaTableDDL tableDDL = placement.getDeltaTableDDL();
 
         Statement statement = selectDeltaFrom(tableDDL)
                 .where(gt(token(tableDDL.getRowKeyColumnName()), startToken))
@@ -732,7 +732,7 @@ public class CqlDataReaderDAO implements DataReaderDAO {
     private ResultSet columnScan(DeltaPlacement placement, TableDDL tableDDL, ByteBuffer rowKey, Range<RangeTimeUUID> columnRange,
                                  boolean ascending, ConsistencyLevel consistency) {
 
-        Select.Where where = (tableDDL == placement.getDeltaTableDDL() ? selectDeltaFrom(placement.getBlockedDeltaTableDDL()) : selectFrom(tableDDL))
+        Select.Where where = (tableDDL == placement.getDeltaTableDDL() ? selectDeltaFrom(placement.getDeltaTableDDL()) : selectFrom(tableDDL))
                 .where(eq(tableDDL.getRowKeyColumnName(), rowKey));
 
         if (columnRange.hasLowerBound()) {

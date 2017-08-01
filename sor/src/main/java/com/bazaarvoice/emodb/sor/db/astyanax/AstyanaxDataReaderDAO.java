@@ -197,7 +197,7 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
 
         // Query for Delta & Compaction info, just the first 50 columns for now.
         ColumnList<DeltaKey> columns = execute(placement.getKeyspace()
-                        .prepareQuery(placement.getBlockedDeltaColumnFamily(), SorConsistencies.toAstyanax(consistency))
+                        .prepareQuery(placement.getDeltaColumnFamily(), SorConsistencies.toAstyanax(consistency))
                         .getKey(rowKey)
                         .withColumnRange(_maxColumnsRange),
                 "read record at placement %s, table %s, key %s",
@@ -287,7 +287,7 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
         // Read Delta and Compaction objects
         Iterator<Change> deltas = Iterators.emptyIterator();
         if (includeContentData) {
-            ColumnFamily<ByteBuffer, DeltaKey> cf = placement.getBlockedDeltaColumnFamily();
+            ColumnFamily<ByteBuffer, DeltaKey> cf = placement.getDeltaColumnFamily();
             DeltaKey deltaStart = start != null ? new DeltaKey(start, 0) : null;
             DeltaKey deltaEnd = end != null ? new DeltaKey(end, Integer.MAX_VALUE) : null;
             deltas = decodeDeltaColumns(Iterators.limit(new AstyanaxDeltaIterator(columnScan(rowKey, placement, cf, deltaStart, deltaEnd, reversed, _deltaKeyInc, Long.MAX_VALUE, 0, consistency), reversed, _deltaPrefixLength), (int) limit));
@@ -399,7 +399,7 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
         AstyanaxStorage storage = table.getReadStorage();
         DeltaPlacement placement = (DeltaPlacement) storage.getPlacement();
         Keyspace keyspace = placement.getKeyspace().getAstyanaxKeyspace();
-        ColumnFamily<ByteBuffer, DeltaKey> cf = placement.getBlockedDeltaColumnFamily();
+        ColumnFamily<ByteBuffer, DeltaKey> cf = placement.getDeltaColumnFamily();
 
         // Create at least one split per shard, perhaps more if a shard is large.
         List<CfSplit> splits = Lists.newArrayList();
@@ -538,7 +538,7 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
 
         DeltaPlacement placement = (DeltaPlacement) _placementCache.get(placementName);
         CassandraKeyspace keyspace = placement.getKeyspace();
-        ColumnFamily<ByteBuffer, DeltaKey> cf = placement.getBlockedDeltaColumnFamily();
+        ColumnFamily<ByteBuffer, DeltaKey> cf = placement.getDeltaColumnFamily();
 
         // Get the topology so the splits can be grouped by rack
         Multimap<String, TokenRange> racks = describeCassandraTopology(keyspace.getAstyanaxKeyspace());
@@ -648,8 +648,8 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
         while (scanIter.hasNext()) {
             ByteBufferRange keyRange = scanIter.next();
             // Copy delta records in this split.
-            copyRange(sourcePlacement, sourcePlacement.getBlockedDeltaColumnFamily(),
-                    dest, destPlacement, destPlacement.getBlockedDeltaColumnFamily(),
+            copyRange(sourcePlacement, sourcePlacement.getDeltaColumnFamily(),
+                    dest, destPlacement, destPlacement.getDeltaColumnFamily(),
                     _deltaKeyInc, keyRange, progress);
             // Copy audit records in this split.
             copyRange(sourcePlacement, sourcePlacement.getAuditColumnFamily(),
@@ -663,8 +663,8 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
     }
 
     private <C> void copyRange(DeltaPlacement sourcePlacement, ColumnFamily<ByteBuffer, C> sourceCf,
-                               AstyanaxStorage dest, DeltaPlacement destPlacement, ColumnFamily<ByteBuffer, C> destCf, ColumnInc<C> columnInc,
-                               ByteBufferRange keyRange, Runnable progress) {
+                           AstyanaxStorage dest, DeltaPlacement destPlacement, ColumnFamily<ByteBuffer, C> destCf, ColumnInc<C> columnInc,
+                           ByteBufferRange keyRange, Runnable progress) {
         ConsistencyLevel writeConsistency = SorConsistencies.toAstyanax(WriteConsistency.STRONG);
 
         Iterator<List<Row<ByteBuffer, C>>> rowsIter = Iterators.partition(
@@ -737,7 +737,7 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
 
         // Query for Delta & Compaction info, just the first 50 columns for now.
         final Rows<ByteBuffer, DeltaKey> rows = execute(placement.getKeyspace()
-                        .prepareQuery(placement.getBlockedDeltaColumnFamily(), SorConsistencies.toAstyanax(consistency))
+                        .prepareQuery(placement.getDeltaColumnFamily(), SorConsistencies.toAstyanax(consistency))
                         .getKeySlice(rowIds)
                         .withColumnRange(_maxColumnsRange),
                 "query %d keys from placement %s", rowIds.size(), placement.getName());
@@ -753,11 +753,11 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
      * Scans for rows within the specified range, exclusive on start and inclusive on end.
      */
     private Iterator<Row<ByteBuffer, DeltaKey>> rowScan(final DeltaPlacement placement,
-                                                        final ByteBufferRange rowRange,
-                                                        final ByteBufferRange columnRange,
-                                                        final LimitCounter limit,
-                                                        final ReadConsistency consistency) {
-        return rowScan(placement, placement.getBlockedDeltaColumnFamily(), rowRange, columnRange, limit, consistency);
+                                                    final ByteBufferRange rowRange,
+                                                    final ByteBufferRange columnRange,
+                                                    final LimitCounter limit,
+                                                    final ReadConsistency consistency) {
+        return rowScan(placement, placement.getDeltaColumnFamily(), rowRange, columnRange, limit, consistency);
     }
 
     /**
@@ -876,15 +876,15 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
      * <code>page</code> is non-zero, and inclusive on end.
      */
     private <C> Iterator<Column<C>> columnScan(final ByteBuffer rowKey,
-                                               final DeltaPlacement placement,
-                                               final ColumnFamily<ByteBuffer, C> columnFamily,
-                                               final C start,
-                                               final C end,
-                                               final boolean reversed,
-                                               final ColumnInc<C> columnInc,
-                                               final long limit,
-                                               final long page,
-                                               final ReadConsistency consistency) {
+                                              final DeltaPlacement placement,
+                                              final ColumnFamily<ByteBuffer, C> columnFamily,
+                                              final C start,
+                                              final C end,
+                                              final boolean reversed,
+                                              final ColumnInc<C> columnInc,
+                                              final long limit,
+                                              final long page,
+                                              final ReadConsistency consistency) {
         return Iterators.concat(new AbstractIterator<Iterator<Column<C>>>() {
             private C _from = start;
             private long _remaining = limit;
@@ -1134,7 +1134,7 @@ public class AstyanaxDataReaderDAO implements DataReaderDAO, DataCopyDAO {
             AstyanaxTable table = (AstyanaxTable) key.getTable();
             AstyanaxStorage storage = table.getReadStorage();
             DeltaPlacement placement = (DeltaPlacement) storage.getPlacement();
-            ColumnFamily<ByteBuffer, DeltaKey> columnFamily = placement.getBlockedDeltaColumnFamily();
+            ColumnFamily<ByteBuffer, DeltaKey> columnFamily = placement.getDeltaColumnFamily();
 
             // Execute the same scan 3 times, returning 3 iterators that process the results in different ways.  In
             // practice at most two of the iterators are actually consumed (one or more is ignored) so the columnScan

@@ -7,18 +7,21 @@ import com.bazaarvoice.emodb.sor.api.History;
 import com.bazaarvoice.emodb.sor.api.WriteConsistency;
 import com.bazaarvoice.emodb.sor.core.AuditBatchPersister;
 import com.bazaarvoice.emodb.sor.core.AuditStore;
-import com.bazaarvoice.emodb.sor.db.*;
+import com.bazaarvoice.emodb.sor.db.DAOUtils;
+import com.bazaarvoice.emodb.sor.db.DataWriterDAO;
+import com.bazaarvoice.emodb.sor.db.RecordUpdate;
 import com.bazaarvoice.emodb.sor.db.cql.CqlWriterDAODelegate;
 import com.bazaarvoice.emodb.sor.delta.Delta;
 import com.bazaarvoice.emodb.table.db.Table;
 import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxStorage;
 import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxTable;
 import com.bazaarvoice.emodb.table.db.astyanax.FullConsistencyTimeProvider;
-import com.bazaarvoice.emodb.table.db.astyanax.PlacementCache;
 import com.bazaarvoice.emodb.table.db.consistency.HintsConsistencyTimeProvider;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.datastax.driver.core.*;
+import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.Session;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.google.inject.Inject;
 import org.apache.commons.lang3.StringUtils;
@@ -29,17 +32,17 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 
-
-public class CqlDataWriterDAO implements DataWriterDAO {
+// Delegates to AstyanaxWriterDAO for non-Compaction stuff
+// Once we transition fully, we will stop delegating to Astyanax
+public class CqlDataWriterDAO implements DataWriterDAO{
 
     private final int _deltaBlockSize;
     private final String _deltaPrefix;
     private final int _deltaPrefixLength;
-    private final byte[] _deltaPrefixBytes;
 
     private final AstyanaxDataReaderDAO _readerDao;
     private final DataWriterDAO _astyanaxWriterDAO;
@@ -47,16 +50,17 @@ public class CqlDataWriterDAO implements DataWriterDAO {
     private final Meter _updateMeter;
     private final Meter _oversizeUpdateMeter;
     private final FullConsistencyTimeProvider _fullConsistencyTimeProvider;
-    private final PlacementCache _placementCache;
 
     private final HintsConsistencyTimeProvider _rawConsistencyTimeProvider;
     private final AuditStore _auditStore;
 
     @Inject
     public CqlDataWriterDAO(@CqlWriterDAODelegate DataWriterDAO delegate, AstyanaxDataReaderDAO readerDao,
-                            PlacementCache placementCache, FullConsistencyTimeProvider fullConsistencyTimeProvider,
-                            AuditStore auditStore, HintsConsistencyTimeProvider rawConsistencyTimeProvider,
-                            ChangeEncoder changeEncoder, MetricRegistry metricRegistry, @BlockSize int deltaBlockSize,
+                            FullConsistencyTimeProvider fullConsistencyTimeProvider, AuditStore auditStore,
+                            HintsConsistencyTimeProvider rawConsistencyTimeProvider,
+                            ChangeEncoder changeEncoder,
+                            MetricRegistry metricRegistry,
+                            @BlockSize int deltaBlockSize,
                             @PrefixLength int deltaPrefixLength) {
         _readerDao = checkNotNull(readerDao, "readerDao");
         _astyanaxWriterDAO = checkNotNull(delegate, "delegate");
@@ -64,12 +68,10 @@ public class CqlDataWriterDAO implements DataWriterDAO {
         _rawConsistencyTimeProvider = checkNotNull(rawConsistencyTimeProvider, "rawConsistencyTimeProvider");
         _auditStore = checkNotNull(auditStore, "auditStore");
         _changeEncoder = checkNotNull(changeEncoder, "changeEncoder");
-        _placementCache = placementCache;
         _updateMeter = metricRegistry.meter(getMetricName("updates"));
         _oversizeUpdateMeter = metricRegistry.meter(getMetricName("oversizeUpdates"));
         _deltaBlockSize = deltaBlockSize;
         _deltaPrefix = StringUtils.repeat('0', deltaPrefixLength);
-        _deltaPrefixBytes = _deltaPrefix.getBytes();
         _deltaPrefixLength = deltaPrefixLength;
     }
 
@@ -111,13 +113,13 @@ public class CqlDataWriterDAO implements DataWriterDAO {
             ByteBuffer rowKey = storage.getRowKey(key);
 
             // Should synchronously write compaction and then delete deltas
-            writeCompaction(rowKey, compactionKey, compaction, consistency, placement, keyspace);
+            writeCompaction(rowKey, compactionKey, compaction, consistency, placement, keyspace, tbl, key);
 
-            deleteCompactedDeltas(rowKey, consistency, placement, keyspace, changesToDelete, historyList);
+            deleteCompactedDeltas(rowKey, consistency, placement, keyspace, changesToDelete, historyList, tbl, key);
         }
     }
 
-    private void insertBlockedDeltas(BatchStatement batchStatement, BlockedDeltaTableDDL tableDDL, ConsistencyLevel consistencyLevel, ByteBuffer rowKey, UUID changeId, ByteBuffer encodedDelta) {
+    private void insertBlockedDeltas(BatchStatement batchStatement, DeltaTableDDL tableDDL, ConsistencyLevel consistencyLevel, ByteBuffer rowKey, UUID changeId, ByteBuffer encodedDelta) {
 
         List<ByteBuffer> blocks = DAOUtils.getBlockedDeltas(encodedDelta, _deltaPrefixLength, _deltaBlockSize);
 
@@ -133,82 +135,53 @@ public class CqlDataWriterDAO implements DataWriterDAO {
 
     private void writeCompaction(ByteBuffer rowKey, UUID compactionKey, Compaction compaction,
                                  WriteConsistency consistency, DeltaPlacement placement,
-                                 CassandraKeyspace keyspace) {
-
-        // TODO: drastically increase batch_size_warn_in_kb in Cassandra.yaml. This is safe because all changes are to same partition key
+                                 CassandraKeyspace keyspace, Table table, String key) {
 
         // Add the compaction record
-        ByteBuffer encodedBlockedCompaction = ByteBuffer.wrap(_changeEncoder.encodeCompaction(compaction, new StringBuilder(_deltaPrefix)).toString().getBytes());
-        ByteBuffer encodedCompaction = encodedBlockedCompaction.duplicate();
-        encodedCompaction.position(encodedCompaction.position() + _deltaPrefixLength);
+        ByteBuffer encodedCompaction = ByteBuffer.wrap(_changeEncoder.encodeCompaction(compaction, new StringBuilder(_deltaPrefix)).toString().getBytes());
 
         Session session = keyspace.getCqlSession();
         ConsistencyLevel consistencyLevel = SorConsistencies.toCql(consistency);
+        DeltaTableDDL tableDDL = placement.getDeltaTableDDL();
 
-        TableDDL deltaTableDDL = placement.getDeltaTableDDL();
-        BlockedDeltaTableDDL blockedDeltaTableDDL = placement.getBlockedDeltaTableDDL();
+        BatchStatement batchStatement = new BatchStatement(BatchStatement.Type.LOGGED);
 
-        // create new atomic batch
-        BatchStatement newTableStatement = new BatchStatement(BatchStatement.Type.LOGGED);
+        insertBlockedDeltas(batchStatement, tableDDL, consistencyLevel, rowKey, compactionKey, encodedCompaction);
 
-        insertBlockedDeltas(newTableStatement, blockedDeltaTableDDL, consistencyLevel, rowKey, compactionKey, encodedBlockedCompaction);
-
-        ResultSetFuture newTableFuture = session.executeAsync(newTableStatement);
-
-        Statement oldTableStatement = QueryBuilder.insertInto(deltaTableDDL.getTableMetadata())
-                .value(deltaTableDDL.getRowKeyColumnName(), rowKey)
-                .value(deltaTableDDL.getChangeIdColumnName(), compactionKey)
-                .value(deltaTableDDL.getValueColumnName(), encodedCompaction)
-                .setConsistencyLevel(consistencyLevel);
-
-        ResultSetFuture oldTableFuture =  session.executeAsync(oldTableStatement);
-
-        // Wait for both statements to return
-        newTableFuture.getUninterruptibly();
-        oldTableFuture.getUninterruptibly();
-    }
-
-    private Statement deleteStatement(TableDDL tableDDL, ByteBuffer rowKey, UUID changeId, ConsistencyLevel consistencyLevel) {
-        return QueryBuilder.delete()
-                .from(tableDDL.getTableMetadata())
-                .where(eq(tableDDL.getRowKeyColumnName(), rowKey))
-                .and(eq(tableDDL.getChangeIdColumnName(), changeId))
-                .setConsistencyLevel(consistencyLevel);
+        session.execute(batchStatement);
     }
 
     private void deleteCompactedDeltas(ByteBuffer rowKey, WriteConsistency consistency, DeltaPlacement placement,
                                        CassandraKeyspace keyspace, Collection<UUID> changesToDelete,
-                                       List<History> historyList) {
+                                       List<History> historyList, Table table, String key) {
 
         Session session = keyspace.getCqlSession();
         ConsistencyLevel consistencyLevel = SorConsistencies.toCql(consistency);
 
         // delete the old deltas & compaction records
 
-        TableDDL blockedDeltaTableDDL = placement.getBlockedDeltaTableDDL();
-        TableDDL deltaTableDDL = placement.getDeltaTableDDL();
+        DeltaTableDDL tableDDL = placement.getDeltaTableDDL();
 
-        BatchStatement oldTableStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
-        BatchStatement newTableStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
+        // each individual delete statement will be atomic, so the batch can be unlogged
+        BatchStatement batchStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
 
         for (UUID change : changesToDelete) {
-            oldTableStatement.add(deleteStatement(deltaTableDDL, rowKey, change, consistencyLevel));
-            newTableStatement.add(deleteStatement(blockedDeltaTableDDL, rowKey, change, consistencyLevel));
+            batchStatement.add(QueryBuilder.delete()
+                    .from(tableDDL.getTableMetadata())
+                    .where(eq(tableDDL.getRowKeyColumnName(), rowKey))
+                    .and(eq(tableDDL.getChangeIdColumnName(), change))
+                .setConsistencyLevel(consistencyLevel));
         }
 
 
         if (historyList != null && !historyList.isEmpty()) {
-            AuditBatchPersister auditBatchPersister = CqlAuditBatchPersister.build(oldTableStatement, placement.getDeltaHistoryTableDDL(),
+            AuditBatchPersister auditBatchPersister = CqlAuditBatchPersister.build(batchStatement, placement.getDeltaHistoryTableDDL(),
                     _changeEncoder, _auditStore);
             _auditStore.putDeltaAudits(rowKey, historyList, auditBatchPersister);
         }
 
-        ResultSetFuture oldTableFuture =  session.executeAsync(oldTableStatement);
-        ResultSetFuture newTableFuture = session.executeAsync(newTableStatement);
+        session.execute(batchStatement);
 
-        // Wait for both statements to return
-        newTableFuture.getUninterruptibly();
-        oldTableFuture.getUninterruptibly();
     }
 
     @Override
@@ -220,5 +193,4 @@ public class CqlDataWriterDAO implements DataWriterDAO {
     public void purgeUnsafe(Table table) {
         _astyanaxWriterDAO.purgeUnsafe(table);
     }
-
 }
