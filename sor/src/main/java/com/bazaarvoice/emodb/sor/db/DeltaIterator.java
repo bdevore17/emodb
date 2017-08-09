@@ -47,7 +47,7 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
 
         _oldDelta = _next;
 
-        while (_iterator.hasNext() && getChangeId(_next = _iterator.next()) == correctChangeId) {
+        while (_iterator.hasNext() && getChangeId(_next = _iterator.next()).equals(correctChangeId)) {
             _list.add(_next);
             contentSize += getValue(_next).remaining();
             _next = null;
@@ -55,7 +55,7 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
 
         Collections.reverse(_list);
 
-
+        // delta is fragmented if the first block is not zero. In this case, we skip it.
         if (getBlock(_list.get(0)) != 0) {
             return null;
         }
@@ -63,7 +63,7 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
         int numBlocks = getNumBlocks(_list.get(0));
 
         while (numBlocks != _list.size()) {
-            contentSize -= getValue(_list.remove(_list.size())).remaining();
+            contentSize -= getValue(_list.remove(_list.size() - 1)).remaining();
         }
 
         return stitchContent(contentSize);
@@ -86,12 +86,11 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
         for (int i = 1; i < numBlocks; i++) {
             if (_iterator.hasNext()) {
                 _next = _iterator.next();
-                if (getChangeId(_next) == changeId) {
+                if (getChangeId(_next).equals(changeId)) {
                     _list.add(_next);
                     contentSize += getValue(_next).remaining();
                 } else {
                     // fragmented delta encountered, we must skip over it
-                    skipForward();
                     return null;
                 }
             } else {
@@ -107,42 +106,50 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
 
     @Override
     protected T computeNext() {
-        if (_next == null) {
-            return endOfData();
-        }
 
-        ByteBuffer content;
+        while(true) {
 
-        if (!_reverse) {
-
-            int numBlocks = getNumBlocks(_next);
-
-            if (numBlocks == 1) {
-                T ret = convertDelta(_next);
-                skipForward();
-                return ret;
+            if (_next == null) {
+                return endOfData();
             }
 
-            content = compute(numBlocks);
+            ByteBuffer content;
 
-        } else {
-            if (getBlock(_next) == 0) {
-                T ret = convertDelta(_next);
-                _next = _iterator.next();
-                return ret;
+            if (!_reverse) {
+
+                int numBlocks = getNumBlocks(_next);
+
+                if (numBlocks == 1) {
+                    T ret = convertDelta(_next);
+                    skipForward();
+                    return ret;
+                }
+
+                content = compute(numBlocks);
+
+            } else {
+                if (getBlock(_next) == 0) {
+                    if (getNumBlocks(_next) != 1) {
+                        continue;
+                    }
+                    T ret = convertDelta(_next);
+                    _next = _iterator.hasNext() ? _iterator.next() : null;
+                    return ret;
+                }
+
+                content = reverseCompute();
             }
 
-            content = reverseCompute();
+            _list.clear();
+
+            if (content == null) {
+                continue;
+            }
+
+
+            return convertDelta(_oldDelta, content);
+
         }
-
-        _list.clear();
-
-        if (content == null) {
-            return computeNext();
-        }
-
-
-        return convertDelta(_oldDelta, content);
     }
 
     // This handles the edge case in which a client has explicity specified a changeId when writing and overwrote an exisiting delta.
@@ -160,8 +167,8 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
 
         // build numBlocks by adding together each hex digit
         for (int i = 0; i < _prefixLength; i++) {
-            byte b = content.get();
-            numBlocks += (b <= '9' ? b - '0' : b - 'A' + 10) << (4 * (_prefixLength - i - 1));
+            byte b = content.get(i);
+            numBlocks = numBlocks << 4 | (b <= '9' ? b - '0' : b - 'A' + 10);
         }
 
         return numBlocks;
@@ -176,21 +183,19 @@ abstract public class DeltaIterator<R, T> extends AbstractIterator<T> {
         return content;
     }
 
+    // transforms delta from the provided type to return type
     abstract protected T convertDelta(R delta);
 
+    // transforms delta from the provided type to the return type, while also changing content to be the parameter provided
     abstract protected T convertDelta(R delta, ByteBuffer content);
 
+    // get block number from delta
     abstract protected int getBlock(R delta);
 
+    // get change UUID from delta
     abstract protected UUID getChangeId(R delta);
 
+    // get delta content from delta
     abstract protected ByteBuffer getValue(R delta);
 
-}
-
-class DeltaStitchingException extends RuntimeException {
-
-    public DeltaStitchingException() {
-        super("Found fragmented deltas without a compaction record ahead of them.");
-    }
 }

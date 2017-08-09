@@ -87,6 +87,7 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
     private final Meter _updateMeter;
     private final Meter _oversizeUpdateMeter;
     private final FullConsistencyTimeProvider _fullConsistencyTimeProvider;
+    private final DAOUtils _daoUtils;
     private final int _deltaBlockSize;
     private final String _deltaPrefix;
     private final int _deltaPrefixLength;
@@ -102,10 +103,8 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
     public AstyanaxDataWriterDAO(@AstyanaxWriterDAODelegate DataWriterDAO delegate, AstyanaxDataReaderDAO readerDao,
                                  FullConsistencyTimeProvider fullConsistencyTimeProvider, AuditStore auditStore,
                                  HintsConsistencyTimeProvider rawConsistencyTimeProvider,
-                                 ChangeEncoder changeEncoder,
-                                 MetricRegistry metricRegistry,
-                                 @BlockSize int deltaBlockSize,
-                                 @PrefixLength int deltaPrefixLength) {
+                                 ChangeEncoder changeEncoder, MetricRegistry metricRegistry,
+                                 DAOUtils daoUtils, @BlockSize int deltaBlockSize, @PrefixLength int deltaPrefixLength) {
         _cqlWriterDAO = checkNotNull(delegate, "delegate");
         _readerDao = checkNotNull(readerDao, "readerDao");
         _fullConsistencyTimeProvider = checkNotNull(fullConsistencyTimeProvider, "fullConsistencyTimeProvider");
@@ -114,6 +113,7 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
         _changeEncoder = checkNotNull(changeEncoder, "changeEncoder");
         _updateMeter = metricRegistry.meter(getMetricName("updates"));
         _oversizeUpdateMeter = metricRegistry.meter(getMetricName("oversizeUpdates"));
+        _daoUtils = daoUtils;
         _deltaBlockSize = deltaBlockSize;
         _deltaPrefix = StringUtils.repeat('0', deltaPrefixLength);
         _deltaPrefixLength = deltaPrefixLength;
@@ -188,7 +188,7 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
     }
 
     private void putBlockedDeltaColumn(ColumnListMutation mutation, UUID changeId, ByteBuffer encodedDelta) {
-        List<ByteBuffer> blocks = DAOUtils.getBlockedDeltas(encodedDelta, _deltaPrefixLength, _deltaBlockSize);
+        List<ByteBuffer> blocks = _daoUtils.getDeltaBlocks(encodedDelta);
         for (int i = 0; i < blocks.size(); i++) {
             mutation.putColumn(new DeltaKey(changeId, i), blocks.get(i));
         }
@@ -264,7 +264,9 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
                 MutationBatch potentiallyOversizeMutation = placement.getKeyspace().prepareMutationBatch(batchKey.getConsistency());
                 potentiallyOversizeMutation.mergeShallow(mutation);
 
+                //this wil be removed in the next version
                 potentiallyOversizeMutation.withRow(placement.getDeltaColumnFamily(), rowKey).putColumn(changeId, encodedDelta, null);
+
                 potentiallyOversizeMutation.withRow(placement.getAuditColumnFamily(), rowKey).putColumn(changeId, encodedAudit, null);
                 putBlockedDeltaColumn(potentiallyOversizeMutation.withRow(placement.getBlockedDeltaColumnFamily(), rowKey), changeId, encodedBlockDelta);
 
@@ -277,7 +279,9 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
                 }
             }
 
+            // this will be removed in the next version
             mutation.withRow(placement.getDeltaColumnFamily(), rowKey).putColumn(changeId, encodedDelta, null);
+
             mutation.withRow(placement.getAuditColumnFamily(), rowKey).putColumn(changeId, encodedAudit, null);
             putBlockedDeltaColumn(mutation.withRow(placement.getBlockedDeltaColumnFamily(), rowKey), changeId, encodedBlockDelta);
             approxMutationSize += deltaSize + auditSize;

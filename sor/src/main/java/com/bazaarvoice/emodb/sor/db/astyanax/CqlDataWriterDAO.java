@@ -16,10 +16,10 @@ import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxTable;
 import com.bazaarvoice.emodb.table.db.astyanax.FullConsistencyTimeProvider;
 import com.bazaarvoice.emodb.table.db.astyanax.PlacementCache;
 import com.bazaarvoice.emodb.table.db.consistency.HintsConsistencyTimeProvider;
-import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.datastax.driver.core.*;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
+import com.google.common.base.Charsets;
 import com.google.inject.Inject;
 import org.apache.commons.lang3.StringUtils;
 
@@ -39,13 +39,11 @@ public class CqlDataWriterDAO implements DataWriterDAO {
     private final int _deltaBlockSize;
     private final String _deltaPrefix;
     private final int _deltaPrefixLength;
-    private final byte[] _deltaPrefixBytes;
+    private final DAOUtils _daoUtils;
 
     private final AstyanaxDataReaderDAO _readerDao;
     private final DataWriterDAO _astyanaxWriterDAO;
     private final ChangeEncoder _changeEncoder;
-    private final Meter _updateMeter;
-    private final Meter _oversizeUpdateMeter;
     private final FullConsistencyTimeProvider _fullConsistencyTimeProvider;
     private final PlacementCache _placementCache;
 
@@ -56,8 +54,8 @@ public class CqlDataWriterDAO implements DataWriterDAO {
     public CqlDataWriterDAO(@CqlWriterDAODelegate DataWriterDAO delegate, AstyanaxDataReaderDAO readerDao,
                             PlacementCache placementCache, FullConsistencyTimeProvider fullConsistencyTimeProvider,
                             AuditStore auditStore, HintsConsistencyTimeProvider rawConsistencyTimeProvider,
-                            ChangeEncoder changeEncoder, MetricRegistry metricRegistry, @BlockSize int deltaBlockSize,
-                            @PrefixLength int deltaPrefixLength) {
+                            ChangeEncoder changeEncoder, MetricRegistry metricRegistry, DAOUtils daoUtils,
+                            @BlockSize int deltaBlockSize, @PrefixLength int deltaPrefixLength) {
         _readerDao = checkNotNull(readerDao, "readerDao");
         _astyanaxWriterDAO = checkNotNull(delegate, "delegate");
         _fullConsistencyTimeProvider = checkNotNull(fullConsistencyTimeProvider, "fullConsistencyTimeProvider");
@@ -65,11 +63,9 @@ public class CqlDataWriterDAO implements DataWriterDAO {
         _auditStore = checkNotNull(auditStore, "auditStore");
         _changeEncoder = checkNotNull(changeEncoder, "changeEncoder");
         _placementCache = placementCache;
-        _updateMeter = metricRegistry.meter(getMetricName("updates"));
-        _oversizeUpdateMeter = metricRegistry.meter(getMetricName("oversizeUpdates"));
+        _daoUtils = daoUtils;
         _deltaBlockSize = deltaBlockSize;
         _deltaPrefix = StringUtils.repeat('0', deltaPrefixLength);
-        _deltaPrefixBytes = _deltaPrefix.getBytes();
         _deltaPrefixLength = deltaPrefixLength;
     }
 
@@ -89,7 +85,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
 
     @Override
     public void updateAll(Iterator<RecordUpdate> updates, UpdateListener listener) {
-        _astyanaxWriterDAO.updateAll(updates,listener);
+        _astyanaxWriterDAO.updateAll(updates, listener);
     }
 
     @Override
@@ -119,7 +115,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
 
     private void insertBlockedDeltas(BatchStatement batchStatement, BlockedDeltaTableDDL tableDDL, ConsistencyLevel consistencyLevel, ByteBuffer rowKey, UUID changeId, ByteBuffer encodedDelta) {
 
-        List<ByteBuffer> blocks = DAOUtils.getBlockedDeltas(encodedDelta, _deltaPrefixLength, _deltaBlockSize);
+        List<ByteBuffer> blocks = _daoUtils.getDeltaBlocks(encodedDelta);
 
         for (int i = 0; i < blocks.size(); i++) {
             batchStatement.add(QueryBuilder.insertInto(tableDDL.getTableMetadata())
@@ -138,7 +134,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
         // TODO: drastically increase batch_size_warn_in_kb in Cassandra.yaml. This is safe because all changes are to same partition key
 
         // Add the compaction record
-        ByteBuffer encodedBlockedCompaction = ByteBuffer.wrap(_changeEncoder.encodeCompaction(compaction, new StringBuilder(_deltaPrefix)).toString().getBytes());
+        ByteBuffer encodedBlockedCompaction = ByteBuffer.wrap(_changeEncoder.encodeCompaction(compaction, new StringBuilder(_deltaPrefix)).toString().getBytes(Charsets.UTF_8));
         ByteBuffer encodedCompaction = encodedBlockedCompaction.duplicate();
         encodedCompaction.position(encodedCompaction.position() + _deltaPrefixLength);
 
@@ -155,13 +151,14 @@ public class CqlDataWriterDAO implements DataWriterDAO {
 
         ResultSetFuture newTableFuture = session.executeAsync(newTableStatement);
 
+        // this write statement should be removed in the next version
         Statement oldTableStatement = QueryBuilder.insertInto(deltaTableDDL.getTableMetadata())
                 .value(deltaTableDDL.getRowKeyColumnName(), rowKey)
                 .value(deltaTableDDL.getChangeIdColumnName(), compactionKey)
                 .value(deltaTableDDL.getValueColumnName(), encodedCompaction)
                 .setConsistencyLevel(consistencyLevel);
 
-        ResultSetFuture oldTableFuture =  session.executeAsync(oldTableStatement);
+        ResultSetFuture oldTableFuture = session.executeAsync(oldTableStatement);
 
         // Wait for both statements to return
         newTableFuture.getUninterruptibly();
@@ -188,6 +185,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
         TableDDL blockedDeltaTableDDL = placement.getBlockedDeltaTableDDL();
         TableDDL deltaTableDDL = placement.getDeltaTableDDL();
 
+        // the old statement should be removed in the next version
         BatchStatement oldTableStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
         BatchStatement newTableStatement = new BatchStatement(BatchStatement.Type.UNLOGGED);
 
@@ -203,7 +201,7 @@ public class CqlDataWriterDAO implements DataWriterDAO {
             _auditStore.putDeltaAudits(rowKey, historyList, auditBatchPersister);
         }
 
-        ResultSetFuture oldTableFuture =  session.executeAsync(oldTableStatement);
+        ResultSetFuture oldTableFuture = session.executeAsync(oldTableStatement);
         ResultSetFuture newTableFuture = session.executeAsync(newTableStatement);
 
         // Wait for both statements to return

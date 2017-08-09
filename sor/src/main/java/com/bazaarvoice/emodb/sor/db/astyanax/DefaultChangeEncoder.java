@@ -14,7 +14,6 @@ import com.bazaarvoice.emodb.sor.delta.deser.JsonTokener;
 import com.google.common.base.Charsets;
 import com.google.common.base.Functions;
 import com.google.common.collect.FluentIterable;
-import jnr.ffi.Struct;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import javax.annotation.Nonnull;
@@ -213,7 +212,7 @@ class DefaultChangeEncoder implements ChangeEncoder {
                     return Encoding.H1;
             }
         }
-        throw new IllegalArgumentException("Unknown encoding: " + BufferUtils.getString(buf, 0, sep, Charsets.US_ASCII));
+        throw new IllegalArgumentException("Unknown encoding: " + BufferUtils.getString(buf, position, sep, Charsets.US_ASCII));
     }
 
     private String getBody(ByteBuffer buf, int sep) {

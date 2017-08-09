@@ -1,6 +1,7 @@
 package com.bazaarvoice.emodb.sor.db.astyanax;
 
 import com.bazaarvoice.emodb.sor.DataStoreConfiguration;
+import com.bazaarvoice.emodb.sor.db.DAOUtils;
 import com.bazaarvoice.emodb.sor.db.DataReaderDAO;
 import com.bazaarvoice.emodb.sor.db.DataWriterDAO;
 import com.bazaarvoice.emodb.sor.db.cql.CqlReaderDAODelegate;
@@ -26,6 +27,8 @@ public class DAOModule extends PrivateModule {
     protected void configure() {
         bind(Integer.class).annotatedWith(BlockSize.class).toInstance(DELTA_BLOCK_SIZE);
         bind(Integer.class).annotatedWith(PrefixLength.class).toInstance(DELTA_PREFIX_LENGTH);
+        bind(DAOUtils.class).asEagerSingleton();
+
         bind(DataReaderDAO.class).annotatedWith(CqlReaderDAODelegate.class).to(AstyanaxDataReaderDAO.class).asEagerSingleton();
         bind(DataWriterDAO.class).annotatedWith(CqlWriterDAODelegate.class).to(AstyanaxDataWriterDAO.class).asEagerSingleton();
         bind(DataWriterDAO.class).annotatedWith(AstyanaxWriterDAODelegate.class).to(CqlDataWriterDAO.class).asEagerSingleton();
@@ -43,7 +46,6 @@ public class DAOModule extends PrivateModule {
         expose(DataWriterDAO.class);
         expose(DataCopyDAO.class);
         expose(DataPurgeDAO.class);
-
     }
 
     @Provides
