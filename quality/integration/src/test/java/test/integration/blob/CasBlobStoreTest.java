@@ -73,7 +73,6 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;

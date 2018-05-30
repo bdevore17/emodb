@@ -66,6 +66,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static com.bazaarvoice.emodb.auth.apikey.ApiKeyRequest.AUTHENTICATION_HEADER;
 import static org.junit.Assert.assertArrayEquals;

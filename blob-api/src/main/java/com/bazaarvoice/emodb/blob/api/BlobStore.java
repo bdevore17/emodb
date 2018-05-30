@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Supplier;
 
 public interface BlobStore {
 

@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Authenticating interface to {@link BlobStore}.  This method should exactly mirror BlobStore except with added

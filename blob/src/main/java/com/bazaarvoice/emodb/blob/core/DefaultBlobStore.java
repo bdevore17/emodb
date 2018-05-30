@@ -43,6 +43,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;

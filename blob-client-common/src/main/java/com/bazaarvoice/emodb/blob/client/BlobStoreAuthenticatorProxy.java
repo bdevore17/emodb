@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * BlobStore instance that takes an {@link AuthBlobStore} and API key and proxies all calls using the API key.
