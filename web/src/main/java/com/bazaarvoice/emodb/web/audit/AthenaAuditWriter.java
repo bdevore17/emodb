@@ -1,6 +1,7 @@
 package com.bazaarvoice.emodb.web.audit;
 
 import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.PutObjectResult;
 import com.bazaarvoice.emodb.common.json.JsonHelper;
 import com.bazaarvoice.emodb.sor.api.Audit;
 import com.bazaarvoice.emodb.sor.audit.AuditWriter;
@@ -35,6 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -64,8 +66,9 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     private final Clock _clock;
     private final ObjectWriter _objectWriter;
     private final ConcurrentMap<Long, AuditOutput> _openAuditOutputs = Maps.newConcurrentMap();
-    
-    private ScheduledExecutorService _service;
+
+    private ScheduledExecutorService _auditService;
+    private ExecutorService _fileTransferService;
     private AuditOutput _mruAuditOutput;
     
     public AthenaAuditWriter(AmazonS3 s3, URI s3AuditRootUri, long maxFileSize, Duration maxBatchTime,
@@ -80,8 +83,8 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         if (s3AuditRoot.startsWith("/")) {
             s3AuditRoot = s3AuditRoot.substring(1);
         }
-        if (!s3AuditRoot.endsWith("/")) {
-            s3AuditRoot = s3AuditRoot + "/";
+        if (s3AuditRoot.endsWith("/")) {
+            s3AuditRoot = s3AuditRoot.substring(0, s3AuditRoot.length()-1);
         }
         _s3AuditRoot = s3AuditRoot;
 
@@ -105,18 +108,24 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         long now = _clock.millis();
         long msToNextBatch = _maxBatchTimeMs - (now % _maxBatchTimeMs);
 
-        _service = Executors.newScheduledThreadPool(3, new ThreadFactoryBuilder().setNameFormat("audit-log-%d").build());
+        // Two threads for the audit service: once to drain queued audits and one to close audit logs files and submit
+        // them for transfer.
+        _auditService = Executors.newScheduledThreadPool(2, new ThreadFactoryBuilder().setNameFormat("audit-log-%d").build());
+        _fileTransferService = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat("audit-transfer-%d").build());
 
-        _service.scheduleAtFixedRate(this::doLogFileMaintenance,
+        _auditService.scheduleAtFixedRate(this::doLogFileMaintenance,
                 msToNextBatch, _maxBatchTimeMs, TimeUnit.MILLISECONDS);
 
-        _service.submit(this::processQueuedAudits);
+        _auditService.scheduleWithFixedDelay(this::processQueuedAudits,
+                0, 1, TimeUnit.SECONDS);
     }
 
     @Override
     public void stop() throws Exception {
-        _service.shutdown();
-        if (!_service.awaitTermination(30, TimeUnit.SECONDS)) {
+        _auditService.shutdown();
+        _fileTransferService.shutdown();
+        
+        if (!_auditService.awaitTermination(30, TimeUnit.SECONDS)) {
             _log.warn("Audits still processing unexpectedly after shutdown");
         }
         // Close all complete log files.  Don't transfer them now since we're shutting down; the next time the service
@@ -139,12 +148,27 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         closeCompleteLogFiles(false);
 
         // Find all closed log files in the staging directory and move them to S3
-        for (File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(".log.gz")))           {
+        for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(".log.gz")))           {
             String auditDate = logFile.getName().substring(_logFilePrefix.length() + 1, _logFilePrefix.length() + 9);
+            String dest = String.format("%s/date=%s/%s", _s3AuditRoot, auditDate, logFile.getName());
 
-//            if (!logFile.delete()) {
-//                _log.warn("Failed to delete file after copying to s3: {}", logFile);
-//            }
+            _fileTransferService.submit(() -> {
+                // Since file transfers are done in a single this thread shouldn't have any concurrency issues,
+                // but verify the same file wasn't submitted previously and is already transferred.
+                if (logFile.exists()) {
+                    try {
+                        PutObjectResult result = _s3.putObject(_s3Bucket, dest, logFile);
+                        _log.debug("Audit log copied: {}, ETag={}", logFile, result.getETag());
+
+                        if (!logFile.delete()) {
+                            _log.warn("Failed to delete file after copying to s3: {}", logFile);
+                        }
+                    } catch (Exception e) {
+                        // Log the error, try again on the next iteration
+                        _log.warn("Failed to copy log file {}", logFile, e);
+                    }
+                }
+            });
         }
     }
 
@@ -159,26 +183,15 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     private void processQueuedAudits() {
         QueuedAudit audit;
         try {
-            while (!_service.isShutdown()) {
-                if ((audit = _auditQueue.poll(1, TimeUnit.SECONDS)) != null) {
-                    boolean written = false;
-                    while (!written) {
-                        AuditOutput auditOutput = getAuditOutputForTime(audit.time);
-                        written = auditOutput.writeAudit(audit);
-                    }
+            while (!_auditService.isShutdown() && (audit = _auditQueue.poll()) != null) {
+                boolean written = false;
+                while (!written) {
+                    AuditOutput auditOutput = getAuditOutputForTime(audit.time);
+                    written = auditOutput.writeAudit(audit);
                 }
-            }
-        } catch (InterruptedException e) {
-            if (!_service.isShutdown()) {
-                _log.warn("Audit log service interrupted while service is still running");
             }
         } catch (Exception e) {
             _log.error("Processing of queued audits failed", e);
-        } finally {
-            // On any exception so long as the service is still running restart processing queued audits
-            if (!_service.isShutdown()) {
-                _service.schedule(this::processQueuedAudits, 1, TimeUnit.SECONDS);
-            }
         }
     }
 
