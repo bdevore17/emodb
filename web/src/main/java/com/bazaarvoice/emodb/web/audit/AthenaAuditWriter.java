@@ -2,12 +2,13 @@ package com.bazaarvoice.emodb.web.audit;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.PutObjectResult;
-import com.bazaarvoice.emodb.common.json.JsonHelper;
 import com.bazaarvoice.emodb.sor.api.Audit;
 import com.bazaarvoice.emodb.sor.audit.AuditWriter;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -103,21 +104,35 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
                 .writer();
     }
 
+    @VisibleForTesting
+    AthenaAuditWriter(AmazonS3 s3, URI s3AuditRootUri, long maxFileSize, Duration maxBatchTime,
+                      File stagingDir, String logFilePrefix, ObjectMapper objectMapper, Clock clock,
+                      ScheduledExecutorService auditService, ExecutorService fileTransferService) {
+        this(s3, s3AuditRootUri, maxFileSize, maxBatchTime, stagingDir, logFilePrefix, objectMapper, clock);
+        _auditService = auditService;
+        _fileTransferService = fileTransferService;
+    }
+
     @Override
     public void start() {
         long now = _clock.millis();
         long msToNextBatch = _maxBatchTimeMs - (now % _maxBatchTimeMs);
 
         // Two threads for the audit service: once to drain queued audits and one to close audit logs files and submit
-        // them for transfer.
-        _auditService = Executors.newScheduledThreadPool(2, new ThreadFactoryBuilder().setNameFormat("audit-log-%d").build());
-        _fileTransferService = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat("audit-transfer-%d").build());
-
-        _auditService.scheduleAtFixedRate(this::doLogFileMaintenance,
-                msToNextBatch, _maxBatchTimeMs, TimeUnit.MILLISECONDS);
+        // them for transfer.  Normally these are initially null and locally managed, but unit tests may provide
+        // pre-configured instances.
+        if (_auditService == null) {
+            _auditService = Executors.newScheduledThreadPool(2, new ThreadFactoryBuilder().setNameFormat("audit-log-%d").build());
+        }
+        if (_fileTransferService == null) {
+            _fileTransferService = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat("audit-transfer-%d").build());
+        }
 
         _auditService.scheduleWithFixedDelay(this::processQueuedAudits,
                 0, 1, TimeUnit.SECONDS);
+
+        _auditService.scheduleAtFixedRate(this::doLogFileMaintenance,
+                msToNextBatch, _maxBatchTimeMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -278,7 +293,11 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
                 auditMap.put("tags", audit.audit.getTags());
             }
             if (!custom.isEmpty()) {
-                auditMap.put("custom", JsonHelper.asJson(custom));
+                try {
+                    auditMap.put("custom", _objectWriter.writeValueAsString(custom));
+                } catch (JsonProcessingException e) {
+                    _log.info("Failed to write custom audit information", e);
+                }
             }
 
             _lock.lock();
