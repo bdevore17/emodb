@@ -2,6 +2,7 @@ package com.bazaarvoice.emodb.web.audit;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.PutObjectResult;
+import com.bazaarvoice.emodb.common.dropwizard.lifecycle.LifeCycleRegistry;
 import com.bazaarvoice.emodb.sor.api.Audit;
 import com.bazaarvoice.emodb.sor.audit.AuditWriter;
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -79,7 +80,8 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     private boolean _fileTransfersEnabled = true;
 
     public AthenaAuditWriter(AmazonS3 s3, URI s3AuditRootUri, long maxFileSize, Duration maxBatchTime,
-                             File stagingDir, String logFilePrefix, ObjectMapper objectMapper, Clock clock) {
+                             File stagingDir, String logFilePrefix, ObjectMapper objectMapper, Clock clock,
+                             LifeCycleRegistry lifeCycleRegistry) {
         _s3 = requireNonNull(s3, "s3");
         requireNonNull(s3AuditRootUri, "s3AuditRoot");
         checkArgument("s3".equals(s3AuditRootUri.getScheme()), "Audit root must be in s3");
@@ -108,13 +110,16 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         _objectWriter = objectMapper.copy()
                 .configure(JsonGenerator.Feature.AUTO_CLOSE_TARGET, false)
                 .writer();
+
+        lifeCycleRegistry.manage(this);
     }
 
     @VisibleForTesting
     AthenaAuditWriter(AmazonS3 s3, URI s3AuditRootUri, long maxFileSize, Duration maxBatchTime,
                       File stagingDir, String logFilePrefix, ObjectMapper objectMapper, Clock clock,
-                      ScheduledExecutorService auditService, ExecutorService fileTransferService) {
-        this(s3, s3AuditRootUri, maxFileSize, maxBatchTime, stagingDir, logFilePrefix, objectMapper, clock);
+                      LifeCycleRegistry lifeCycleRegistry, ScheduledExecutorService auditService,
+                      ExecutorService fileTransferService) {
+        this(s3, s3AuditRootUri, maxFileSize, maxBatchTime, stagingDir, logFilePrefix, objectMapper, clock, lifeCycleRegistry);
         _auditService = auditService;
         _fileTransferService = fileTransferService;
     }
@@ -342,6 +347,9 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
             }
             if (custom.remove(Audit.PROGRAM) != null) {
                 auditMap.put("program", audit.audit.getProgram());
+            }
+            if (custom.remove(Audit.SHA1) != null) {
+                auditMap.put("sha1", audit.audit.getCustom(Audit.SHA1));
             }
             if (custom.remove(Audit.TAGS) != null) {
                 auditMap.put("tags", audit.audit.getTags());

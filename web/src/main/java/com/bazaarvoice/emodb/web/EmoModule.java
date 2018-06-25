@@ -141,7 +141,6 @@ import com.bazaarvoice.ostrich.pool.ServicePoolBuilder;
 import com.bazaarvoice.ostrich.registry.zookeeper.ZooKeeperServiceRegistry;
 import com.bazaarvoice.ostrich.retry.ExponentialBackoffRetry;
 import com.codahale.metrics.MetricRegistry;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
@@ -386,7 +385,7 @@ public class EmoModule extends AbstractModule {
         }
 
         @Provides @Singleton
-        AuditWriter provideAuditWriter(DataStoreConfiguration dataStoreConfig, Clock clock) {
+        AuditWriter provideAuditWriter(DataStoreConfiguration dataStoreConfig, Clock clock, LifeCycleRegistry lifeCycleRegistry) {
             AuditLogConfiguration auditLogConfig = dataStoreConfig.getAuditLogConfiguration().orNull();
             if (auditLogConfig == null) {
                 return new DiscardingAuditWriter();
@@ -417,10 +416,10 @@ public class EmoModule extends AbstractModule {
 
             Duration maxBatchTime = Duration.ofMillis(auditLogConfig.getMaxBatchTime().getMillis());
             AthenaAuditWriter athenaAuditWriter = new AthenaAuditWriter(amazonS3, logRoot, auditLogConfig.getMaxFileSize(),
-                    maxBatchTime, stagingDir, auditLogConfig.getLogFilePrefix(), _environment.getObjectMapper(), clock);
+                    maxBatchTime, stagingDir, auditLogConfig.getLogFilePrefix(), _environment.getObjectMapper(), clock,
+                    lifeCycleRegistry);
 
-            // TODO:  Remove this, it is only for testing.
-            athenaAuditWriter.setFileTransfersEnabled(false);
+            athenaAuditWriter.setFileTransfersEnabled(auditLogConfig.isFileTransfersEnabled());
             return athenaAuditWriter;
         }
     }

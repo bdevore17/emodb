@@ -40,6 +40,10 @@ public class AuditLogConfiguration {
     @JsonProperty("logFilePrefix")
     private String _logFilePrefix = "audit-log";
 
+    /* Useful for local testing, impractical to disable in production */
+    @JsonProperty("fileTransfersEnabled")
+    private boolean _fileTransfersEnabled = true;
+
     @Nonnull
     public String getLogBucket() {
         return _logBucket;
@@ -121,6 +125,15 @@ public class AuditLogConfiguration {
 
     public AuditLogConfiguration setLogFilePrefix(String logFilePrefix) {
         _logFilePrefix = logFilePrefix;
+        return this;
+    }
+
+    public boolean isFileTransfersEnabled() {
+        return _fileTransfersEnabled;
+    }
+
+    public AuditLogConfiguration setFileTransfersEnabled(boolean fileTransfersEnabled) {
+        _fileTransfersEnabled = fileTransfersEnabled;
         return this;
     }
 }

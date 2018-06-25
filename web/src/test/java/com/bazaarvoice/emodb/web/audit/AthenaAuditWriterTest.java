@@ -2,6 +2,7 @@ package com.bazaarvoice.emodb.web.audit;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.PutObjectResult;
+import com.bazaarvoice.emodb.common.dropwizard.lifecycle.LifeCycleRegistry;
 import com.bazaarvoice.emodb.common.json.JsonHelper;
 import com.bazaarvoice.emodb.sor.api.Audit;
 import com.bazaarvoice.emodb.sor.api.AuditBuilder;
@@ -114,7 +115,8 @@ public class AthenaAuditWriterTest {
         _fileTransferService = mock(ExecutorService.class);
 
         AthenaAuditWriter writer = new AthenaAuditWriter(_s3, URI.create("s3://" + BUCKET + "/" + s3Path), maxFileSize,
-                maxBatchTime, _tempStagingDir, prefix, Jackson.newObjectMapper(), _clock, _auditService, _fileTransferService);
+                maxBatchTime, _tempStagingDir, prefix, Jackson.newObjectMapper(), _clock, mock(LifeCycleRegistry.class),
+                _auditService, _fileTransferService);
         writer.start();
 
         // On start two services should have been submitted: one to poll the audit queue and one to close log files and
