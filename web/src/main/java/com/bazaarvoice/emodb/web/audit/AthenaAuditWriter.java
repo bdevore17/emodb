@@ -12,6 +12,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.io.ByteStreams;
 import com.google.common.io.CountingOutputStream;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.dropwizard.lifecycle.Managed;
@@ -21,9 +22,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.time.Clock;
@@ -52,7 +53,11 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
 
     private final static DateTimeFormatter LOG_FILE_DATE_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
-    
+
+    private final static String OPEN_FILE_SUFFIX = ".log.tmp";
+    private final static String CLOSED_FILE_SUFFIX = ".log";
+    private final static String COMPRESSED_FILE_SUFFIX = ".log.gz";
+
     private final static long DEFAULT_MAX_FILE_SIZE = Size.megabytes(10).toBytes();
     private final static Duration DEFAULT_MAX_BATCH_TIME = Duration.ofMinutes(2);
 
@@ -71,7 +76,8 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     private ScheduledExecutorService _auditService;
     private ExecutorService _fileTransferService;
     private AuditOutput _mruAuditOutput;
-    
+    private boolean _fileTransfersEnabled = true;
+
     public AthenaAuditWriter(AmazonS3 s3, URI s3AuditRootUri, long maxFileSize, Duration maxBatchTime,
                              File stagingDir, String logFilePrefix, ObjectMapper objectMapper, Clock clock) {
         _s3 = requireNonNull(s3, "s3");
@@ -118,6 +124,21 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         long now = _clock.millis();
         long msToNextBatch = _maxBatchTimeMs - (now % _maxBatchTimeMs);
 
+        // Do a one-time closing of all orphaned log files
+        for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(OPEN_FILE_SUFFIX))) {
+            if (logFile.length() > 0) {
+                try {
+                    renameClosedLogFile(logFile);
+                } catch (IOException e) {
+                    _log.warn("Failed to close orphaned audit log file: {}", logFile, e);
+                }
+            } else {
+                if (!logFile.delete()) {
+                    _log.debug("Failed to delete empty orphaned log file: {}", logFile);
+                }
+            }
+        }
+
         // Two threads for the audit service: once to drain queued audits and one to close audit logs files and submit
         // them for transfer.  Normally these are initially null and locally managed, but unit tests may provide
         // pre-configured instances.
@@ -157,34 +178,16 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         }
     }
 
+    public void setFileTransfersEnabled(boolean fileTransfersEnabled) {
+        _fileTransfersEnabled = fileTransfersEnabled;
+    }
+
     private void doLogFileMaintenance() {
         // Close all files that have either exceeded their maximum size or age but have not closed due to lack of
         // audit activity.
         closeCompleteLogFiles(false);
-
-        // Find all closed log files in the staging directory and move them to S3
-        for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(".log.gz")))           {
-            String auditDate = logFile.getName().substring(_logFilePrefix.length() + 1, _logFilePrefix.length() + 9);
-            String dest = String.format("%s/date=%s/%s", _s3AuditRoot, auditDate, logFile.getName());
-
-            _fileTransferService.submit(() -> {
-                // Since file transfers are done in a single this thread shouldn't have any concurrency issues,
-                // but verify the same file wasn't submitted previously and is already transferred.
-                if (logFile.exists()) {
-                    try {
-                        PutObjectResult result = _s3.putObject(_s3Bucket, dest, logFile);
-                        _log.debug("Audit log copied: {}, ETag={}", logFile, result.getETag());
-
-                        if (!logFile.delete()) {
-                            _log.warn("Failed to delete file after copying to s3: {}", logFile);
-                        }
-                    } catch (Exception e) {
-                        // Log the error, try again on the next iteration
-                        _log.warn("Failed to copy log file {}", logFile, e);
-                    }
-                }
-            });
-        }
+        prepareClosedLogFilesForTransfer();
+        transferLogFilesToS3();
     }
 
     private void closeCompleteLogFiles(boolean forceClose) {
@@ -193,6 +196,58 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
                 auditOutput.close();
             }
         }
+    }
+
+    private void prepareClosedLogFilesForTransfer() {
+        for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(CLOSED_FILE_SUFFIX))) {
+            boolean moved;
+            String fileName = logFile.getName().substring(0, logFile.getName().length() - CLOSED_FILE_SUFFIX.length()) + COMPRESSED_FILE_SUFFIX;
+            try (FileInputStream fileIn = new FileInputStream(logFile);
+                 FileOutputStream fileOut = new FileOutputStream(new File(logFile.getParentFile(), fileName));
+                 GzipCompressorOutputStream gzipOut = new GzipCompressorOutputStream(fileOut)) {
+
+                ByteStreams.copy(fileIn, gzipOut);
+                moved = true;
+            } catch (IOException e) {
+                _log.warn("Failed to compress audit log file: {}", logFile, e);
+                moved = false;
+            }
+
+            if (moved) {
+                if (!logFile.delete()) {
+                    _log.warn("Failed to delete audit log file: {}", logFile);
+                }
+            }
+        }
+    }
+
+    private void transferLogFilesToS3() {
+        if (_fileTransfersEnabled) {
+            // Find all closed log files in the staging directory and move them to S3
+            for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(COMPRESSED_FILE_SUFFIX))) {
+                String auditDate = logFile.getName().substring(_logFilePrefix.length() + 1, _logFilePrefix.length() + 9);
+                String dest = String.format("%s/date=%s/%s", _s3AuditRoot, auditDate, logFile.getName());
+
+                _fileTransferService.submit(() -> {
+                    // Since file transfers are done in a single this thread shouldn't have any concurrency issues,
+                    // but verify the same file wasn't submitted previously and is already transferred.
+                    if (logFile.exists()) {
+                        try {
+                            PutObjectResult result = _s3.putObject(_s3Bucket, dest, logFile);
+                            _log.debug("Audit log copied: {}, ETag={}", logFile, result.getETag());
+
+                            if (!logFile.delete()) {
+                                _log.warn("Failed to delete file after copying to s3: {}", logFile);
+                            }
+                        } catch (Exception e) {
+                            // Log the error, try again on the next iteration
+                            _log.warn("Failed to copy log file {}", logFile, e);
+                        }
+                    }
+                });
+            }
+        }
+
     }
 
     private void processQueuedAudits() {
@@ -221,14 +276,16 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     }
 
     private AuditOutput createNewAuditLogOut(long batchTime) {
-        try {
-            long now = _clock.millis();
-            long nextBatchCycleCloseTime = now - (now % _maxBatchTimeMs) + _maxBatchTimeMs;
+        long now = _clock.millis();
+        long nextBatchCycleCloseTime = now - (now % _maxBatchTimeMs) + _maxBatchTimeMs;
 
-            return new AuditOutput(LOG_FILE_DATE_FORMATTER.format(Instant.ofEpochMilli(batchTime)), batchTime, nextBatchCycleCloseTime);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create new AuditOutput file");
-        }
+        return new AuditOutput(LOG_FILE_DATE_FORMATTER.format(Instant.ofEpochMilli(batchTime)), batchTime, nextBatchCycleCloseTime);
+    }
+
+    private void renameClosedLogFile(File logFile) throws IOException {
+        // Move the file to a new file without the ".tmp" suffix
+        String closedFileName = logFile.getName().substring(0, logFile.getName().length() - OPEN_FILE_SUFFIX.length()) + CLOSED_FILE_SUFFIX;
+        Files.move(logFile.toPath(), new File(logFile.getParentFile(), closedFileName).toPath());
     }
 
     private static class QueuedAudit {
@@ -252,12 +309,10 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         private final ReentrantLock _lock = new ReentrantLock();
         private volatile boolean _closed;
         private volatile int _auditsWritten = 0;
-        private volatile OutputStream _auditLogOut;
-        private volatile CountingOutputStream _bytesWrittenOut;
+        private volatile CountingOutputStream _auditLogOut;
 
-
-        AuditOutput(String datePrefix, long batchTime, long closeTime) throws IOException {
-            String fileName = String.format("%s.%s.%s.log.gz.tmp", _logFilePrefix, datePrefix, UUID.randomUUID());
+        AuditOutput(String datePrefix, long batchTime, long closeTime) {
+            String fileName = String.format("%s.%s.%s%s", _logFilePrefix, datePrefix, UUID.randomUUID(), OPEN_FILE_SUFFIX);
             _auditLogFile = new File(_stagingDir, fileName);
             _batchTime = batchTime;
             _closeTime = closeTime;
@@ -265,8 +320,7 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
 
         void createAuditLogOut() throws IOException {
             FileOutputStream fileOut = new FileOutputStream(_auditLogFile);
-            _bytesWrittenOut = new CountingOutputStream(fileOut);
-            _auditLogOut = new GzipCompressorOutputStream(_bytesWrittenOut);
+            _auditLogOut = new CountingOutputStream(fileOut);
         }
 
         boolean writeAudit(QueuedAudit audit) {
@@ -342,10 +396,7 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
                     }
 
                     if (_auditsWritten != 0) {
-                        // Move the file to a new file without the ".tmp" suffix
-                        String tmpFileName = _auditLogFile.getName();
-                        String finalFileName = tmpFileName.substring(0, tmpFileName.length() - 4);
-                        Files.move(_auditLogFile.toPath(), new File(_auditLogFile.getParentFile(), finalFileName).toPath());
+                        renameClosedLogFile(_auditLogFile);
                     }
                 }
             } catch (IOException e) {
@@ -365,7 +416,7 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         }
 
         boolean isOversized() {
-            return _bytesWrittenOut != null && _bytesWrittenOut.getCount() > _maxFileSize;
+            return _auditLogOut != null && _auditLogOut.getCount() > _maxFileSize;
         }
 
         boolean shouldClose() {

@@ -1,5 +1,12 @@
 package com.bazaarvoice.emodb.web;
 
+import com.amazonaws.auth.AWSCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
+import com.amazonaws.internal.StaticCredentialsProvider;
+import com.amazonaws.regions.Regions;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3Client;
 import com.bazaarvoice.curator.dropwizard.ZooKeeperConfiguration;
 import com.bazaarvoice.emodb.auth.AuthCacheRegistry;
 import com.bazaarvoice.emodb.auth.AuthZooKeeper;
@@ -24,6 +31,7 @@ import com.bazaarvoice.emodb.common.dropwizard.guice.SelfAdminHostAndPort;
 import com.bazaarvoice.emodb.common.dropwizard.guice.SelfHostAndPort;
 import com.bazaarvoice.emodb.common.dropwizard.guice.SelfHostAndPortModule;
 import com.bazaarvoice.emodb.common.dropwizard.guice.ServerCluster;
+import com.bazaarvoice.emodb.common.dropwizard.guice.SystemTablePlacement;
 import com.bazaarvoice.emodb.common.dropwizard.healthcheck.DropwizardHealthCheckRegistry;
 import com.bazaarvoice.emodb.common.dropwizard.healthcheck.HealthCheckRegistry;
 import com.bazaarvoice.emodb.common.dropwizard.leader.LeaderServiceTask;
@@ -70,10 +78,13 @@ import com.bazaarvoice.emodb.queue.client.QueueClientFactory;
 import com.bazaarvoice.emodb.queue.client.QueueServiceAuthenticator;
 import com.bazaarvoice.emodb.queue.core.TrustedDedupQueueService;
 import com.bazaarvoice.emodb.queue.core.TrustedQueueService;
+import com.bazaarvoice.emodb.sor.AuditLogConfiguration;
 import com.bazaarvoice.emodb.sor.DataStoreConfiguration;
 import com.bazaarvoice.emodb.sor.DataStoreModule;
 import com.bazaarvoice.emodb.sor.DataStoreZooKeeper;
 import com.bazaarvoice.emodb.sor.api.DataStore;
+import com.bazaarvoice.emodb.sor.audit.AuditWriter;
+import com.bazaarvoice.emodb.sor.audit.DiscardingAuditWriter;
 import com.bazaarvoice.emodb.sor.client.DataStoreClient;
 import com.bazaarvoice.emodb.sor.client.DataStoreClientFactory;
 import com.bazaarvoice.emodb.sor.condition.Condition;
@@ -82,8 +93,8 @@ import com.bazaarvoice.emodb.sor.core.DataStoreAsyncModule;
 import com.bazaarvoice.emodb.sor.core.SystemDataStore;
 import com.bazaarvoice.emodb.sor.db.cql.CqlForMultiGets;
 import com.bazaarvoice.emodb.sor.db.cql.CqlForScans;
-import com.bazaarvoice.emodb.common.dropwizard.guice.SystemTablePlacement;
 import com.bazaarvoice.emodb.table.db.consistency.GlobalFullConsistencyZooKeeper;
+import com.bazaarvoice.emodb.web.audit.AthenaAuditWriter;
 import com.bazaarvoice.emodb.web.auth.AuthorizationConfiguration;
 import com.bazaarvoice.emodb.web.auth.OwnerDatabusAuthorizer;
 import com.bazaarvoice.emodb.web.auth.SecurityModule;
@@ -130,11 +141,18 @@ import com.bazaarvoice.ostrich.pool.ServicePoolBuilder;
 import com.bazaarvoice.ostrich.registry.zookeeper.ZooKeeperServiceRegistry;
 import com.bazaarvoice.ostrich.retry.ExponentialBackoffRetry;
 import com.codahale.metrics.MetricRegistry;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.io.Files;
 import com.google.common.net.HostAndPort;
-import com.google.inject.*;
+import com.google.inject.AbstractModule;
+import com.google.inject.Key;
+import com.google.inject.Provides;
+import com.google.inject.ProvisionException;
+import com.google.inject.Singleton;
+import com.google.inject.TypeLiteral;
 import com.google.inject.name.Named;
 import com.sun.jersey.api.client.Client;
 import io.dropwizard.client.JerseyClientBuilder;
@@ -145,8 +163,11 @@ import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.ws.rs.core.UriBuilder;
+import java.io.File;
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
@@ -362,6 +383,45 @@ public class EmoModule extends AbstractModule {
         @Provides @Singleton @CqlForScans
         Setting<Boolean> provideUseCqlForScansSetting(SettingsRegistry settingsRegistry) {
             return settingsRegistry.register("sor.cassandra.cql.useCqlForScans", Boolean.class, true);
+        }
+
+        @Provides @Singleton
+        AuditWriter provideAuditWriter(DataStoreConfiguration dataStoreConfig, Clock clock) {
+            AuditLogConfiguration auditLogConfig = dataStoreConfig.getAuditLogConfiguration().orNull();
+            if (auditLogConfig == null) {
+                return new DiscardingAuditWriter();
+            }
+
+            URI logRoot = UriBuilder.fromPath(auditLogConfig.getLogPath())
+                    .scheme("s3")
+                    .host(auditLogConfig.getLogBucket())
+                    .build();
+
+            AWSCredentialsProvider credentialsProvider;
+            if (auditLogConfig.getS3AccessKey() != null && auditLogConfig.getS3SecretKey() != null) {
+                credentialsProvider = new StaticCredentialsProvider(
+                        new BasicAWSCredentials(auditLogConfig.getS3AccessKey(), auditLogConfig.getS3SecretKey()));
+            } else {
+                credentialsProvider = new DefaultAWSCredentialsProviderChain();
+            }
+            AmazonS3 amazonS3 = new AmazonS3Client(credentialsProvider)
+                    .withRegion(Regions.fromName(auditLogConfig.getLogBucketRegion()));
+
+            String stagingDirName = auditLogConfig.getStagingDir();
+            File stagingDir;
+            if (stagingDirName != null) {
+                stagingDir = new File(stagingDirName);
+            } else {
+                stagingDir = Files.createTempDir();
+            }
+
+            Duration maxBatchTime = Duration.ofMillis(auditLogConfig.getMaxBatchTime().getMillis());
+            AthenaAuditWriter athenaAuditWriter = new AthenaAuditWriter(amazonS3, logRoot, auditLogConfig.getMaxFileSize(),
+                    maxBatchTime, stagingDir, auditLogConfig.getLogFilePrefix(), _environment.getObjectMapper(), clock);
+
+            // TODO:  Remove this, it is only for testing.
+            athenaAuditWriter.setFileTransfersEnabled(false);
+            return athenaAuditWriter;
         }
     }
 

@@ -10,6 +10,7 @@ import com.bazaarvoice.emodb.sor.api.DeltaSizeLimitException;
 import com.bazaarvoice.emodb.sor.api.History;
 import com.bazaarvoice.emodb.sor.api.ReadConsistency;
 import com.bazaarvoice.emodb.sor.api.WriteConsistency;
+import com.bazaarvoice.emodb.sor.audit.AuditWriter;
 import com.bazaarvoice.emodb.sor.core.AuditStore;
 import com.bazaarvoice.emodb.sor.db.DAOUtils;
 import com.bazaarvoice.emodb.sor.db.DataWriterDAO;
@@ -17,6 +18,7 @@ import com.bazaarvoice.emodb.sor.db.RecordUpdate;
 import com.bazaarvoice.emodb.sor.delta.Delta;
 import com.bazaarvoice.emodb.sor.delta.Literal;
 import com.bazaarvoice.emodb.sor.delta.MapDelta;
+import com.bazaarvoice.emodb.sor.uuid.TimeUUIDs;
 import com.bazaarvoice.emodb.table.db.Table;
 import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxStorage;
 import com.bazaarvoice.emodb.table.db.astyanax.AstyanaxTable;
@@ -101,6 +103,8 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
     private final HintsConsistencyTimeProvider _rawConsistencyTimeProvider;
     private final AuditStore _auditStore;
 
+    private AuditWriter _auditWriter;
+
     @Inject
     public AstyanaxDataWriterDAO(@AstyanaxWriterDAODelegate DataWriterDAO delegate, AstyanaxKeyScanner keyScanner,
                                  FullConsistencyTimeProvider fullConsistencyTimeProvider, AuditStore auditStore,
@@ -128,6 +132,11 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
         _writeToBlockedDeltaTable = writeToBlockedDeltaTable;
     }
 
+    @Inject(optional = true)
+    public void setAuditWriter(AuditWriter auditWriter) {
+        _auditWriter = auditWriter;
+    }
+    
     private String getMetricName(String name) {
         return MetricRegistry.name("bv.emodb.sor", "AstyanaxDataWriterDAO", name);
     }
@@ -312,6 +321,10 @@ public class AstyanaxDataWriterDAO implements DataWriterDAO, DataPurgeDAO {
             if (_writeToBlockedDeltaTable) {
                 putBlockedDeltaColumn(mutation.withRow(placement.getBlockedDeltaColumnFamily(), rowKey), changeId, encodedBlockDelta);
                 approxMutationSize += blockDeltaSize;
+            }
+
+            if (_auditWriter != null) {
+                _auditWriter.persist(update.getTable().getName(), update.getKey(), augmentedAudit, TimeUUIDs.getTimeMillis(changeId));
             }
             updateCount += 1;
         }
