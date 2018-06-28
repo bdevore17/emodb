@@ -48,6 +48,24 @@ import java.util.concurrent.locks.ReentrantLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Audit writer implementation which writes all audits as GZIP'd jsonl documents to S3 partitioned by date.
+ * This format allows audit queries to be carried out by Athena, Amazon's Presto implementation over S3 documents.
+ *
+ * This audit writer favors fast, non-blocking calls to {@link #persist(String, String, Audit, long)} over guaranteeing
+ * a completely loss-less audit history.  To achieve this all audits are written to an in-memory queue.  That queue
+ * is written to a local log file until it has reached a maximum size or age, bot configurable in the constructor.
+ * At this time the file is asynchronously GZIP'd then delivered to S3.  Once the file is delivered it is deleted from
+ * the local host.
+ *
+ * Each stage has multiple layers of recovery, ensuring that once a line is written to a file that file will eventually
+ * be delivered to S3.  The exceptions to this which can cause audit loss are:
+ *
+ * <ol>
+ *     <li>The process is terminated while unwritten audits are still in the audit queue.</li>
+ *     <li>The host itself terminates before all files are delivered to S3.</li>
+ * </ol>
+ */
 public class AthenaAuditWriter implements AuditWriter, Managed {
 
     private final static Logger _log = LoggerFactory.getLogger(AthenaAuditWriter.class);
@@ -105,8 +123,11 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         _logFilePrefix = requireNonNull(logFilePrefix, "logFilePrefix");
         _clock = requireNonNull(clock, "clock");
 
+        // Audit queue isn't completely unbounded but is large enough to ensure at several times the normal write rate
+        // it can accept audits without blocking.
         _auditQueue = new ArrayBlockingQueue<>(4096);
 
+        // Need to ensure the object mapper keeps the file stream open after each audit is written.
         _objectWriter = objectMapper.copy()
                 .configure(JsonGenerator.Feature.AUTO_CLOSE_TARGET, false)
                 .writer();
@@ -129,7 +150,8 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         long now = _clock.millis();
         long msToNextBatch = _maxBatchTimeMs - (now % _maxBatchTimeMs);
 
-        // Do a one-time closing of all orphaned log files
+        // Do a one-time closing of all orphaned log files which may have been left behind if a previous EmoDB process
+        // terminated before closing them.
         for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(OPEN_FILE_SUFFIX))) {
             if (logFile.length() > 0) {
                 try {
@@ -179,14 +201,23 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         try {
             _auditQueue.put(new QueuedAudit(table, key, audit, auditTime));
         } catch (InterruptedException e) {
+            // Don't error out if the audit was interrupted since this implementation does not guarantee 100%
+            // audit retention, just warn that it happened.
             _log.warn("Interrupted attempting to write audit for {}/{}", table, key);
         }
     }
 
+    /**
+     * Enables or disables transferring files to S3.  Normally this is always true, which is the default, but local
+     * servers and unit tests may disable.
+     */
     public void setFileTransfersEnabled(boolean fileTransfersEnabled) {
         _fileTransfersEnabled = fileTransfersEnabled;
     }
 
+    /**
+     * This method is run at regular intervals to close log files, gzip them and initiate their transfer to S3.
+     */
     private void doLogFileMaintenance() {
         // Close all files that have either exceeded their maximum size or age but have not closed due to lack of
         // audit activity.
@@ -203,6 +234,12 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         }
     }
 
+    /**
+     * This method takes all closed log files and GZIPs and renames them in preparation for transfer.  If the operation
+     * fails the original file is unmodified so the next call should attempt to prepare the file again.  This means
+     * the same file may be transferred more than once, but this guarantees that so long as the host remains active the
+     * file will eventually be transferred.
+     */
     private void prepareClosedLogFilesForTransfer() {
         for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(CLOSED_FILE_SUFFIX))) {
             boolean moved;
@@ -226,10 +263,15 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         }
     }
 
+    /**
+     * This method takes all log files prepared by {@link #prepareClosedLogFilesForTransfer()} and initiates their
+     * transfer to S3.  The transfer itself is performed asynchronously.
+     */
     private void transferLogFilesToS3() {
         if (_fileTransfersEnabled) {
             // Find all closed log files in the staging directory and move them to S3
             for (final File logFile : _stagingDir.listFiles((dir, name) -> name.startsWith(_logFilePrefix) && name.endsWith(COMPRESSED_FILE_SUFFIX))) {
+                // Extract the date portion of the file name and is it to partition the file in S3
                 String auditDate = logFile.getName().substring(_logFilePrefix.length() + 1, _logFilePrefix.length() + 9);
                 String dest = String.format("%s/date=%s/%s", _s3AuditRoot, auditDate, logFile.getName());
 
@@ -255,6 +297,9 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
 
     }
 
+    /**
+     * This method is run at regular intervals to remove audits from the audit queue and write them to a local file.
+     */
     private void processQueuedAudits() {
         QueuedAudit audit;
         try {
@@ -271,7 +316,10 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     }
 
     private AuditOutput getAuditOutputForTime(long time) {
+        // Truncate the time based on the batch duration
         long batchTime = time - (time % _maxBatchTimeMs);
+        // The most common case is that audits are written in time order, so optimize by caching the most recently
+        // used AuditOutput and return it if it is usable for an audit at the given time.
         AuditOutput mruAuditOutput = _mruAuditOutput;
         if (mruAuditOutput != null && batchTime == mruAuditOutput.getBatchTime() && !mruAuditOutput.isClosed()) {
             return mruAuditOutput;
@@ -282,6 +330,8 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
 
     private AuditOutput createNewAuditLogOut(long batchTime) {
         long now = _clock.millis();
+        // Set the batch to close when the batch it is associated with would be aged by "batch time".  This ensures that
+        // a batch which is opened at the end of it's batch time doesn't remain open for twice "batch time".
         long nextBatchCycleCloseTime = now - (now % _maxBatchTimeMs) + _maxBatchTimeMs;
 
         return new AuditOutput(LOG_FILE_DATE_FORMATTER.format(Instant.ofEpochMilli(batchTime)), batchTime, nextBatchCycleCloseTime);
@@ -293,6 +343,9 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         Files.move(logFile.toPath(), new File(logFile.getParentFile(), closedFileName).toPath());
     }
 
+    /**
+     * In-memory holder for an audit in the queue.
+     */
     private static class QueuedAudit {
         final String table;
         final String key;
@@ -307,6 +360,9 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
         }
     }
 
+    /**
+     * Class holder for a single audit output file, with most of the file details abstracted by {@link #writeAudit(QueuedAudit)}.
+     */
     private class AuditOutput {
         private final File _auditLogFile;
         private final long _batchTime;
@@ -328,6 +384,11 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
             _auditLogOut = new CountingOutputStream(fileOut);
         }
 
+        /**
+         * Writes a single audit to the log file.
+         * @return True if the audit was written, false if the audit could not be written because the file was closed
+         *         or can no longer accept writes due to file size or age.
+         */
         boolean writeAudit(QueuedAudit audit) {
             Map<String, Object> auditMap = Maps.newLinkedHashMap();
             // This is an intentional break from convention to use "tablename" instead of "table".  This is because
@@ -362,6 +423,7 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
                 }
             }
 
+            // Lock critical section to ensure the file isn't closed while writing the audit
             _lock.lock();
             try {
                 if (shouldClose()) {
@@ -372,6 +434,9 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
                     return false;
                 }
 
+                // Lazily create the audit log file on the first write.  This way if a race occurs and more than
+                // one AuditOutput is created for a batch only the one which wins will actually generate a file to
+                // be transferred to S3.
                 if (_auditLogOut == null) {
                     createAuditLogOut();
                 }
