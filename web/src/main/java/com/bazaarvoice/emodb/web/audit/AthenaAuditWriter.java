@@ -329,9 +329,8 @@ public class AthenaAuditWriter implements AuditWriter, Managed {
     }
 
     private AuditOutput createNewAuditLogOut(long batchTime) {
+        // Set the batch to close at the end of the next batch time from now, regardless of what time the batch is for.
         long now = _clock.millis();
-        // Set the batch to close when the batch it is associated with would be aged by "batch time".  This ensures that
-        // a batch which is opened at the end of it's batch time doesn't remain open for twice "batch time".
         long nextBatchCycleCloseTime = now - (now % _maxBatchTimeMs) + _maxBatchTimeMs;
 
         return new AuditOutput(LOG_FILE_DATE_FORMATTER.format(Instant.ofEpochMilli(batchTime)), batchTime, nextBatchCycleCloseTime);
