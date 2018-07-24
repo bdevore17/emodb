@@ -16,6 +16,9 @@ class TimeLimitedIterator<T> implements Iterator<T> {
     private final long _expireAt;
     private long _minimum;
 
+    private boolean _computedNextElement;
+    private T _nextElement;
+
     static <T> TimeLimitedIterator<T> create(Iterator<T> iterator, Duration duration, long minimum) {
         return new TimeLimitedIterator<>(iterator, duration, minimum);
     }
@@ -27,21 +30,39 @@ class TimeLimitedIterator<T> implements Iterator<T> {
             throw new IllegalArgumentException("Minimum must be >= 0");
         }
         _minimum = minimum;
+        _computedNextElement = false;
     }
 
     @Override
     public boolean hasNext() {
-        return _iterator.hasNext() && (_minimum > 0 || System.currentTimeMillis() < _expireAt);
+        if (_computedNextElement) {
+            return true;
+        }
+
+        return computeNextElement();
     }
 
     @Override
     public T next() {
-        if (hasNext()) {
+
+        if (_computedNextElement || computeNextElement()) {
+            _computedNextElement = false;
+            return _nextElement;
+        }
+
+        throw new NoSuchElementException();
+
+    }
+
+    private boolean computeNextElement() {
+        if (_iterator.hasNext() && (_minimum > 0 || System.currentTimeMillis() < _expireAt)) {
+            _computedNextElement = true;
+            _nextElement = _iterator.next();
             if (_minimum > 0) {
                 _minimum--;
             }
-            return _iterator.next();
+            return true;
         }
-        throw new NoSuchElementException();
+         return false;
     }
 }
