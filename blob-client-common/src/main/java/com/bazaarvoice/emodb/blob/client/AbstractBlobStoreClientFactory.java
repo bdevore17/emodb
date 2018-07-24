@@ -4,18 +4,17 @@ import com.bazaarvoice.emodb.blob.api.AuthBlobStore;
 import com.bazaarvoice.emodb.blob.api.BlobStore;
 import com.bazaarvoice.emodb.client.EmoClient;
 import com.bazaarvoice.emodb.client.EmoClientException;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.Payload;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ServiceNames;
+import com.bazaarvoice.emodb.common.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.ServiceNames;
 import com.bazaarvoice.emodb.common.json.JsonStreamingEOFException;
 import com.bazaarvoice.ostrich.MultiThreadedServiceFactory;
 import com.bazaarvoice.ostrich.ServiceEndPoint;
 import com.bazaarvoice.ostrich.pool.ServicePoolBuilder;
-import com.google.common.net.HttpHeaders;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.net.URI;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Abstract parent class for blob store clients.  Subclasses are expected to create and configure an
@@ -53,8 +52,14 @@ abstract public class AbstractBlobStoreClientFactory implements MultiThreadedSer
         if (_connectionManagementService == null) {
             synchronized (this) {
                 if (_connectionManagementService == null) {
+                    final AtomicLong threadCount = new AtomicLong(0);
                     _connectionManagementService = Executors.newSingleThreadScheduledExecutor(
-                            new ThreadFactoryBuilder().setNameFormat("blob-store-client-connection-reaper-%d").build());
+                            runnable -> {
+                                Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+                                thread.setName(String.format("blob-store-client-connection-reaper-%d", threadCount.getAndIncrement()));
+                                return thread;
+                            }
+                    );
                 }
             }
         }
@@ -82,7 +87,7 @@ abstract public class AbstractBlobStoreClientFactory implements MultiThreadedSer
     public boolean isHealthy(ServiceEndPoint endPoint) {
         URI adminUrl = Payload.valueOf(endPoint.getPayload()).getAdminUrl();
         return _client.resource(adminUrl).path("/healthcheck")
-                .header(HttpHeaders.CONNECTION, "close")
+                .header("Connection", "close")
                 .head().getStatus() == 200;
     }
 

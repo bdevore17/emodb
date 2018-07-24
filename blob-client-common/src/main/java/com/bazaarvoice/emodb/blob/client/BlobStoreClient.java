@@ -27,40 +27,32 @@ import com.bazaarvoice.emodb.sor.api.TableOptions;
 import com.bazaarvoice.emodb.sor.api.UnknownPlacementException;
 import com.bazaarvoice.emodb.sor.api.UnknownTableException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.collect.Maps;
-import com.google.common.io.ByteStreams;
-import com.google.common.io.Closeables;
-import com.google.common.io.InputSupplier;
-import com.google.common.net.HttpHeaders;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.codec.binary.Hex;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
+import java.math.BigInteger;
 import java.net.URI;
 import java.time.Duration;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Blob store client implementation that routes API calls to the EmoDB service.  The actual HTTP communication
@@ -68,6 +60,9 @@ import static com.google.common.base.Preconditions.checkState;
  * implementations, such as Jersey.
  */
 public class BlobStoreClient implements AuthBlobStore {
+
+    private final Logger _log = LoggerFactory.getLogger(BlobStoreClient.class);
+
 
     /** Must match the service name in the EmoService class. */
     /*package*/ static final String BASE_SERVICE_NAME = "emodb-blob-1";
@@ -95,21 +90,29 @@ public class BlobStoreClient implements AuthBlobStore {
 
     public BlobStoreClient(URI endPoint, EmoClient client,
                            @Nullable ScheduledExecutorService connectionManagementService) {
-        _client = checkNotNull(client, "client");
+        _client = requireNonNull(client, "client");
         _blobStore = EmoUriBuilder.fromUri(endPoint);
 
         if (connectionManagementService != null) {
             _connectionManagementService = connectionManagementService;
         } else {
             // Create a default single-threaded executor service
+            final AtomicLong threadCount = new AtomicLong(0);
             _connectionManagementService = Executors.newSingleThreadScheduledExecutor(
-                    new ThreadFactoryBuilder().setNameFormat("blob-store-client-connection-reaper-%d").build());
+                    runnable -> {
+                        Thread thread = Executors.defaultThreadFactory().newThread(runnable);
+                        thread.setName(String.format("blob-store-client-connection-reaper-%d", threadCount.getAndIncrement()));
+                        return thread;
+                    }
+            );
         }
     }
 
     @Override
     public Iterator<Table> listTables(String apiKey, @Nullable String fromTableExclusive, long limit) {
-        checkArgument(limit > 0, "Limit must be >0");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be >0");
+        };
         try {
             URI uri = _blobStore.clone()
                     .segment("_table")
@@ -128,10 +131,10 @@ public class BlobStoreClient implements AuthBlobStore {
     @Override
     public void createTable(String apiKey, String table, TableOptions options, Map<String, String> attributes, Audit audit)
             throws TableExistsException {
-        checkNotNull(table, "table");
-        checkNotNull(options, "options");
-        checkNotNull(attributes, "attributes");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(options, "options");
+        requireNonNull(attributes, "attributes");
+        requireNonNull(audit, "audit");
         URI uri = _blobStore.clone()
                 .segment("_table", table)
                 .queryParam("options", RisonHelper.asORison(options))
@@ -149,8 +152,8 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public void dropTable(String apiKey, String table, Audit audit) throws UnknownTableException {
-        checkNotNull(table, "table");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(audit, "audit");
         URI uri = _blobStore.clone()
                 .segment("_table", table)
                 .queryParam("audit", RisonHelper.asORison(audit))
@@ -167,8 +170,8 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public void purgeTableUnsafe(String apiKey, String table, Audit audit) {
-        checkNotNull(table, "table");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(audit, "audit");
         URI uri = _blobStore.clone()
                 .segment("_table", table, "purge")
                 .queryParam("audit", RisonHelper.asORison(audit))
@@ -185,7 +188,7 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public boolean getTableExists(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         URI uri = _blobStore.clone()
                 .segment("_table", table)
                 .build();
@@ -205,13 +208,13 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public boolean isTableAvailable(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         return getTableMetadata(apiKey, table).getAvailability() != null;
     }
 
     @Override
     public Table getTableMetadata(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _blobStore.clone()
                     .segment("_table", table, "metadata")
@@ -227,7 +230,7 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public Map<String, String> getTableAttributes(String apiKey, String table) throws UnknownTableException {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _blobStore.clone()
                     .segment("_table", table)
@@ -243,9 +246,9 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public void setTableAttributes(String apiKey, String table, Map<String, String> attributes, Audit audit) {
-        checkNotNull(table, "table");
-        checkNotNull(attributes, "attributes");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(attributes, "attributes");
+        requireNonNull(audit, "audit");
         URI uri = _blobStore.clone()
                 .segment("_table", table, "attributes")
                 .queryParam("audit", RisonHelper.asORison(audit))
@@ -262,7 +265,7 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public TableOptions getTableOptions(String apiKey, String table) throws UnknownTableException {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _blobStore.clone()
                     .segment("_table", table, "options")
@@ -278,7 +281,7 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public long getTableApproximateSize(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _blobStore.clone()
                     .segment("_table", table, "size")
@@ -294,8 +297,8 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public BlobMetadata getMetadata(String apiKey, String table, String blobId) throws BlobNotFoundException {
-        checkNotNull(table, "table");
-        checkNotNull(blobId, "blobId");
+        requireNonNull(table, "table");
+        requireNonNull(blobId, "blobId");
         try {
             EmoResponse response = _client.resource(toUri(table, blobId))
                     .header(ApiKeyRequest.AUTHENTICATION_HEADER, apiKey)
@@ -316,8 +319,10 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public Iterator<BlobMetadata> scanMetadata(String apiKey, String table, @Nullable String fromBlobIdExclusive, long limit) {
-        checkNotNull(table, "table");
-        checkArgument(limit > 0, "Limit must be >0");
+        requireNonNull(table, "table");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be > 0");
+        }
         try {
             URI uri = _blobStore.clone()
                     .segment(table)
@@ -370,16 +375,16 @@ public class BlobStoreClient implements AuthBlobStore {
 
     private BlobResponse get(BlobRequest blobRequest)
             throws BlobNotFoundException, RangeNotSatisfiableException {
-        checkNotNull(blobRequest, "blobRequest");
-        String table = checkNotNull(blobRequest.getTable(), "table");
-        String blobId = checkNotNull(blobRequest.getBlobId(), "blobId");
+        requireNonNull(blobRequest, "blobRequest");
+        String table = requireNonNull(blobRequest.getTable(), "table");
+        String blobId = requireNonNull(blobRequest.getBlobId(), "blobId");
         RangeSpecification rangeSpec = blobRequest.getRangeSpecification();
         String apiKey = blobRequest.getApiKey();
 
         try {
             EmoResource request = _client.resource(toUri(table, blobId));
             if (rangeSpec != null) {
-                request.header(HttpHeaders.RANGE, rangeSpec);
+                request.header("Range", rangeSpec);
             }
             EmoResponse response = request
                     .header(ApiKeyRequest.AUTHENTICATION_HEADER, apiKey)
@@ -396,9 +401,11 @@ public class BlobStoreClient implements AuthBlobStore {
 
             // Parse range-related data.
             Range range;
-            String contentRange = response.getFirstHeader(HttpHeaders.CONTENT_RANGE);
+            String contentRange = response.getFirstHeader("Content-Range");
             if (status == Response.Status.OK.getStatusCode()) {
-                checkState(contentRange == null, "Unexpected HTTP 200 response with Content-Range header.");
+                if (contentRange != null) {
+                    throw new IllegalStateException("Unexpected HTTP 200 response with Content-Range header.");
+                }
                 if (rangeSpec == null) {
                     // Normal GET request without a Range header
                     range = new Range(0, metadata.getLength());
@@ -409,8 +416,12 @@ public class BlobStoreClient implements AuthBlobStore {
                 }
             } else if (status == HTTP_PARTIAL_CONTENT) {
                 // Normal GET request with a Range header and a 206 Partial Content response
-                checkState(rangeSpec != null, "Unexpected HTTP 206 response to request w/out a Range header.");
-                checkState(contentRange != null, "Unexpected HTTP 206 response w/out Content-Range header.");
+                if (rangeSpec == null) {
+                    throw new IllegalStateException("Unexpected HTTP 206 response to request w/out a Range header.");
+                }
+                if (contentRange == null) {
+                    throw new IllegalStateException("Unexpected HTTP 206 response w/out Content-Range header.");
+                }
                 range = parseContentRange(contentRange);
             } else {
                 throw new IllegalStateException();  // Shouldn't get here
@@ -425,7 +436,9 @@ public class BlobStoreClient implements AuthBlobStore {
     /** Parses an HTTP "Content-Range" header in an HTTP 206 Partial Content response. */
     private Range parseContentRange(String contentRange) {
         Matcher matcher = CONTENT_RANGE_PATTERN.matcher(contentRange);
-        checkState(matcher.matches(), "Unexpected Content-Range header: %s", contentRange);
+        if (!matcher.matches()) {
+            throw new IllegalStateException(String.format("Unexpected Content-Range header: %s", contentRange));
+        }
         long start = Long.parseLong(matcher.group(1));
         long end = Long.parseLong(matcher.group(2));  // Inclusive
         return new Range(start, end - start + 1);
@@ -435,15 +448,17 @@ public class BlobStoreClient implements AuthBlobStore {
     private BlobMetadata parseMetadataHeaders(String blobId, EmoResponse response) {
         // The server always sets X-BV-Length.  It's similar to Content-Length but proxies etc. shouldn't mess with it.
         String lengthString = response.getFirstHeader(X_BV_PREFIX + "Length");
-        checkState(lengthString != null, "BlobStore request is missing expected required X-BV-Length header.");
+        if (lengthString == null) {
+            throw new IllegalStateException("BlobStore request is missing expected required X-BV-Length header.");
+        }
         long length = Long.parseLong(lengthString);
 
         // Extract signature hash values.
-        String md5 = base64ToHex(response.getFirstHeader(HttpHeaders.CONTENT_MD5));
-        String sha1 = stripQuotes(response.getFirstHeader(HttpHeaders.ETAG));
+        String md5 = base64ToHex(response.getFirstHeader("Content-MD5"));
+        String sha1 = stripQuotes(response.getFirstHeader("ETag"));
 
         // Extract attribute map specified when the blob was first uploaded.
-        Map<String, String> attributes = Maps.newHashMap();
+        Map<String, String> attributes = new HashMap<>();
         for (Map.Entry<String, List<String>> entry : response.getHeaders()) {
             if (entry.getKey().startsWith(X_BVA_PREFIX)) {
                 attributes.put(entry.getKey().substring(X_BVA_PREFIX.length()), entry.getValue().get(0));
@@ -463,17 +478,29 @@ public class BlobStoreClient implements AuthBlobStore {
                     in = get(request).getInputStream();
                 }
 
+                // Copy input stream to output stream
                 try {
-                    ByteStreams.copy(in, out);
+                    byte[] buffer = new byte[1024];
+                    while (true) {
+                        int bytesRead = in.read(buffer);
+                        if (bytesRead == -1)
+                            break;
+                        out.write(buffer, 0, bytesRead);
+                    }
                 } finally {
-                    Closeables.close(in, true);
+                    if (in != null) {
+                        try {
+                            in.close();
+                        } catch (IOException e) {
+                        }
+                    }
                 }
             }
         };
     }
 
     private String base64ToHex(String base64) {
-        return (base64 != null) ? Hex.encodeHexString(Base64.decodeBase64(base64)) : null;
+        return String.format("%x", new BigInteger(1, Base64.getDecoder().decode(base64)));
     }
 
     private String stripQuotes(String quoted) {
@@ -484,10 +511,10 @@ public class BlobStoreClient implements AuthBlobStore {
     public void put(String apiKey, String table, String blobId, Supplier<? extends InputStream> in,
                     Map<String, String> attributes, @Nullable Duration ttl)
             throws IOException {
-        checkNotNull(table, "table");
-        checkNotNull(blobId, "blobId");
-        checkNotNull(in, "in");
-        checkNotNull(attributes, "attributes");
+        requireNonNull(table, "table");
+        requireNonNull(blobId, "blobId");
+        requireNonNull(in, "in");
+        requireNonNull(attributes, "attributes");
         try {
             // Encode the ttl as a URL query parameter
             Integer ttlSeconds = Ttls.toSeconds(ttl, 0, null);
@@ -511,8 +538,8 @@ public class BlobStoreClient implements AuthBlobStore {
 
     @Override
     public void delete(String apiKey, String table, String blobId) {
-        checkNotNull(table, "table");
-        checkNotNull(blobId, "blobId");
+        requireNonNull(table, "table");
+        requireNonNull(blobId, "blobId");
         try {
             _client.resource(toUri(table, blobId))
                     .header(ApiKeyRequest.AUTHENTICATION_HEADER, apiKey)
@@ -689,17 +716,33 @@ public class BlobStoreClient implements AuthBlobStore {
 
             // The client requested a sub-range of the blob but the server ignored it.  Manipulate the input stream
             // to return only the client requested range.
-            ByteStreams.skipFully(_stream, _range.getOffset());
-            return ByteStreams.limit(_stream, _range.getLength());
+            long toSkip = _range.getOffset();
+            while (toSkip > 0) {
+                long amt = _stream.skip(toSkip);
+                if (amt == 0) {
+                    // Force a blocking read to avoid infinite loop
+                    if (_stream.read() == -1) {
+                        long skipped = _range.getOffset() - toSkip;
+                        throw new EOFException("reached end of stream after skipping "
+                                + skipped + " bytes; " + toSkip + " bytes expected");
+                    }
+                    toSkip--;
+                } else {
+                    toSkip -= amt;
+                }
+            }
+            return new LimitedInputStream(_stream, _range.getLength());
         }
 
         public void ensureInputStreamClosed() {
             // Only close the stream if no caller ever attempted to read it.
             if (claimInputStream()) {
                 try {
-                    Closeables.close(_stream, true);
+                    if (_stream != null) {
+                        _stream.close();
+                    }
                 } catch (IOException e) {
-                    // Already caught and logged
+                    _log.warn("IOException thrown while closing input stream.", e);
                 }
             }
         }
