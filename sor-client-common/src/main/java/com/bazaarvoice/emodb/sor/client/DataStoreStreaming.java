@@ -8,14 +8,10 @@ import com.bazaarvoice.emodb.sor.api.Intrinsic;
 import com.bazaarvoice.emodb.sor.api.ReadConsistency;
 import com.bazaarvoice.emodb.sor.api.Table;
 import com.bazaarvoice.emodb.sor.api.Update;
-import com.google.common.collect.ImmutableSet;
 
 import javax.annotation.Nullable;
 import java.time.Duration;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Wraps the streaming APIs in the {@link DataStore} with logic that automatically restarts the iterator in the
@@ -133,7 +129,7 @@ public abstract class DataStoreStreaming {
      * Creates, updates or deletes zero or more pieces of content in the data store.
      */
     public static void updateAll(DataStore dataStore, Iterable<Update> updates) {
-        updateAll(dataStore, updates.iterator(), ImmutableSet.<String>of());
+        updateAll(dataStore, updates.iterator(), Collections.emptySet());
     }
 
     /**
@@ -145,7 +141,7 @@ public abstract class DataStoreStreaming {
     }
 
     public static void updateAll(DataStore dataStore, Iterator<Update> updateIter) {
-        updateAll(dataStore, updateIter, ImmutableSet.<String>of());
+        updateAll(dataStore, updateIter, Collections.emptySet());
     }
 
     /**
@@ -176,7 +172,7 @@ public abstract class DataStoreStreaming {
     }
 
     public static void updateAllForFacade(DataStore dataStore, Iterator<Update> updateIter) {
-        updateAllForFacade(dataStore, updateIter, ImmutableSet.<String>of());
+        updateAllForFacade(dataStore, updateIter, Collections.emptySet());
     }
 
     /**

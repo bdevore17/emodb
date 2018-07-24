@@ -12,19 +12,13 @@ import com.bazaarvoice.emodb.sor.api.DataStore;
 import com.bazaarvoice.emodb.sor.api.StashNotAvailableException;
 import com.bazaarvoice.emodb.sor.api.TableNotStashedException;
 import com.bazaarvoice.emodb.sor.api.UnknownTableException;
-import com.google.common.annotations.Beta;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
-import com.google.common.collect.FluentIterable;
-import com.google.common.collect.Iterables;
 
 import java.text.ParseException;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
-
-import static com.google.common.base.Preconditions.checkArgument;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 /**
  * This class provides client access to scan tables and get table splits from Stash.  Getting data from Stash is faster
@@ -61,7 +55,7 @@ public class DataStoreStash {
         return new DataStoreStash(dataStore, StandardStashReader.getInstance(dataStore.getStashRoot()));
     }
 
-    @Beta
+    /* Beta */
     public static DataStoreStash getInstance(DataStore dataStore, ClientConfiguration s3Config) {
         return new DataStoreStash(dataStore, StandardStashReader.getInstance(dataStore.getStashRoot(), s3Config));
     }
@@ -71,13 +65,13 @@ public class DataStoreStash {
                 secretKey));
     }
 
-    @Beta
+    /* Beta */
     public static DataStoreStash getInstance(DataStore dataStore, String accessKey, String secretKey, ClientConfiguration s3Config) {
         return new DataStoreStash(dataStore, StandardStashReader.getInstance(dataStore.getStashRoot(), accessKey,
                 secretKey, s3Config));
     }
 
-    @VisibleForTesting
+    /* Visible for testing */
     DataStoreStash(DataStore dataStore, StandardStashReader stashReader) {
         _dataStore = dataStore;
         _stashReader = stashReader;
@@ -161,12 +155,9 @@ public class DataStoreStash {
      */
     public Iterable<String> listStashTableNames()
             throws StashNotAvailableException {
-        return Iterables.transform(listStashTables(), new Function<StashTable, String>() {
-            @Override
-            public String apply(StashTable stashTable) {
-                return stashTable.getTableName();
-            }
-        });
+        return StreamSupport.stream(listStashTables().spliterator(), false)
+                .map(StashTable::getTableName)
+                ::iterator;
     }
 
     /**
@@ -223,9 +214,9 @@ public class DataStoreStash {
     public Collection<String> getSplits(String table)
             throws StashNotAvailableException, TableNotStashedException {
         try {
-            return FluentIterable.from(_stashReader.getSplits(table))
-                    .transform(Functions.toStringFunction())
-                    .toList();
+            return _stashReader.getSplits(table).stream()
+                    .map(StashSplit::toString)
+                    .collect(Collectors.toList());
         } catch (TableNotStashedException e) {
             throw propagateTableNotStashed(e);
         }
@@ -242,7 +233,9 @@ public class DataStoreStash {
      */
     public StashRowIterable getSplit(String table, String split) {
         final StashSplit stashSplit = StashSplit.fromString(split);
-        checkArgument(stashSplit.getTable().equals(table));
+        if (!stashSplit.getTable().equals(table)) {
+            throw new IllegalArgumentException();
+        }
 
         return new StashRowIterable() {
             @Override

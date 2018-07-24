@@ -1,7 +1,6 @@
 package com.bazaarvoice.emodb.sor.client;
 
 import com.google.common.collect.AbstractIterator;
-import com.google.common.collect.PeekingIterator;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -32,7 +31,7 @@ public class TimeLimitedIteratorTest {
     @Test
     public void testImmediateExpiration() {
         Iterator<Long> unlimitedIter = countForever();
-        PeekingIterator<Long> limitedIter = TimeLimitedIterator.create(unlimitedIter, Duration.ZERO, 0);
+        PeekingIterator<Long> limitedIter = new PeekingIterator<>(TimeLimitedIterator.create(unlimitedIter, Duration.ZERO, 0));
 
         assertFalse(limitedIter.hasNext());
 
@@ -42,7 +41,7 @@ public class TimeLimitedIteratorTest {
     @Test
     public void testMinimumOne() {
         Iterator<Long> unlimitedIter = countForever();
-        PeekingIterator<Long> limitedIter = TimeLimitedIterator.create(unlimitedIter, Duration.ZERO, 1);
+        PeekingIterator<Long> limitedIter = new PeekingIterator<>(TimeLimitedIterator.create(unlimitedIter, Duration.ZERO, 1));
 
         assertTrue(limitedIter.hasNext());
         assertEquals(limitedIter.next(), 0L);
@@ -54,7 +53,7 @@ public class TimeLimitedIteratorTest {
     @Test
     public void testMinimumTwo() {
         Iterator<Long> unlimitedIter = countForever();
-        PeekingIterator<Long> limitedIter = TimeLimitedIterator.create(unlimitedIter, Duration.ZERO, 2);
+        PeekingIterator<Long> limitedIter = new PeekingIterator<>(TimeLimitedIterator.create(unlimitedIter, Duration.ZERO, 2));
 
         assertTrue(limitedIter.hasNext());
         assertEquals(limitedIter.next(), 0L);
@@ -69,7 +68,7 @@ public class TimeLimitedIteratorTest {
     public void testExpirationTime() {
         long start = System.currentTimeMillis();
         Iterator<Long> unlimitedIter = countForever();
-        PeekingIterator<Long> limitedIter = TimeLimitedIterator.create(unlimitedIter, Duration.ofMillis(10), 0);
+        PeekingIterator<Long> limitedIter = new PeekingIterator<>(TimeLimitedIterator.create(unlimitedIter, Duration.ofMillis(10), 0));
         long previous = -1;
         while (limitedIter.hasNext()) {
             long next = limitedIter.next();

@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.hadoop.io;
 
-import com.bazaarvoice.emodb.common.dropwizard.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.Payload;
 import com.bazaarvoice.emodb.sor.api.AuthDataStore;
 import com.bazaarvoice.emodb.sor.api.DataStore;
 import com.bazaarvoice.emodb.sor.client.DataStoreAuthenticator;
