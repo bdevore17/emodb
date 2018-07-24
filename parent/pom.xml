@@ -43,6 +43,7 @@
         <jersey.version>1.18.1</jersey.version>
         <jacoco.version>0.7.2.201409121644</jacoco.version>
         <cassandra.driver.version>3.2.0</cassandra.driver.version>
+        <jax-rs.version>2.1</jax-rs.version>
         <dependency-check-maven.version>1.4.2</dependency-check-maven.version>
         <skipCC>true</skipCC>
         <nexus.autoReleaseAfterClose>true</nexus.autoReleaseAfterClose>
@@ -211,6 +212,11 @@
                 <groupId>joda-time</groupId>
                 <artifactId>joda-time</artifactId>
                 <version>${jodatime-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.ws.rs</groupId>
+                <artifactId>javax.ws.rs-api</artifactId>
+                <version>${jax-rs.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.cassandra</groupId>

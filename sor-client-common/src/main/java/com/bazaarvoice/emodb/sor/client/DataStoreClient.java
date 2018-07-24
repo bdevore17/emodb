@@ -31,10 +31,6 @@ import com.bazaarvoice.emodb.sor.api.Update;
 import com.bazaarvoice.emodb.sor.api.WriteConsistency;
 import com.bazaarvoice.emodb.sor.delta.Delta;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.base.Charsets;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.PeekingIterator;
 import org.apache.commons.codec.binary.Base64;
 
 import javax.annotation.Nullable;
@@ -42,18 +38,12 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
 import java.net.URI;
+import java.nio.charset.Charset;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collection;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Data store client implementation that routes System of Record API calls to the EmoDB service.  The actual HTTP
@@ -76,13 +66,15 @@ public class DataStoreClient implements AuthDataStore {
     private final UriBuilder _dataStore;
 
     public DataStoreClient(URI endPoint, EmoClient client) {
-        _client = checkNotNull(client, "client");
+        _client = requireNonNull(client, "client");
         _dataStore = EmoUriBuilder.fromUri(endPoint);
     }
 
     @Override
     public Iterator<Table> listTables(String apiKey, @Nullable String fromTableExclusive, long limit) {
-        checkArgument(limit > 0, "Limit must be >0");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be > 0");
+        }
         try {
             URI uri = _dataStore.clone()
                     .segment("_table")
@@ -117,10 +109,10 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void createTable(String apiKey, String table, TableOptions options, Map<String, ?> template, Audit audit) throws TableExistsException {
-        checkNotNull(table, "table");
-        checkNotNull(options, "options");
-        checkNotNull(template, "template");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(options, "options");
+        requireNonNull(template, "template");
+        requireNonNull(audit, "audit");
         URI uri = _dataStore.clone()
                 .segment("_table", table)
                 .queryParam("options", RisonHelper.asORison(options))
@@ -147,8 +139,8 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void dropTable(String apiKey, String table, Audit audit) throws UnknownTableException {
-        checkNotNull(table, "table");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(audit, "audit");
         URI uri = _dataStore.clone()
                 .segment("_table", table)
                 .build();
@@ -169,7 +161,7 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public boolean getTableExists(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         URI uri = _dataStore.clone()
                 .segment("_table", table)
                 .build();
@@ -188,13 +180,13 @@ public class DataStoreClient implements AuthDataStore {
     }
 
     public boolean isTableAvailable(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         return getTableMetadata(apiKey, table).getAvailability() != null;
     }
 
     @Override
     public Table getTableMetadata(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _dataStore.clone()
                     .segment("_table", table, "metadata")
@@ -210,7 +202,7 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public Map<String, Object> getTableTemplate(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _dataStore.clone()
                     .segment("_table", table)
@@ -226,9 +218,9 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void setTableTemplate(String apiKey, String table, Map<String, ?> template, Audit audit) {
-        checkNotNull(table, "table");
-        checkNotNull(template, "template");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(template, "template");
+        requireNonNull(audit, "audit");
         URI uri = _dataStore.clone()
                 .segment("_table", table, "template")
                 .queryParam("audit", RisonHelper.asORison(audit))
@@ -254,7 +246,7 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public TableOptions getTableOptions(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _dataStore.clone()
                     .segment("_table", table, "options")
@@ -270,7 +262,7 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public long getTableApproximateSize(String apiKey, String table) {
-        checkNotNull(table, "table");
+        requireNonNull(table, "table");
         try {
             URI uri = _dataStore.clone()
                     .segment("_table", table, "size")
@@ -286,9 +278,11 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public long getTableApproximateSize(String apiKey, String table, int limit) throws UnknownTableException {
-        checkNotNull(table, "table");
-        checkNotNull(limit);
-        checkArgument(limit > 0, "limit must be greater than 0");
+        requireNonNull(table, "table");
+        requireNonNull(limit);
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be greater than 0");
+        }
         try {
             URI uri = _dataStore.clone()
                     .segment("_table", table, "size")
@@ -310,9 +304,9 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public Map<String, Object> get(String apiKey, String table, String key, ReadConsistency consistency) {
-        checkNotNull(table, "table");
-        checkNotNull(key, "key");
-        checkNotNull(consistency, "consistency");
+        requireNonNull(table, "table");
+        requireNonNull(key, "key");
+        requireNonNull(consistency, "consistency");
         try {
             URI uri = _dataStore.clone()
                     .segment(table, key)
@@ -330,17 +324,24 @@ public class DataStoreClient implements AuthDataStore {
     @Override
     public Iterator<Change> getTimeline(String apiKey, String table, String key, boolean includeContentData, boolean includeAuditInformation,
                                         @Nullable UUID start, @Nullable UUID end, boolean reversed, long limit, ReadConsistency consistency) {
-        checkNotNull(table, "table");
-        checkNotNull(key, "key");
+        requireNonNull(table, "table");
+        requireNonNull(key, "key");
         if (start != null && end != null) {
             if (reversed) {
-                checkArgument(TimeUUIDs.compare(start, end) >= 0, "Start must be >=End for reversed ranges");
+                if (TimeUUIDs.compare(start, end) < 0) {
+                    throw new IllegalArgumentException("Start must be >=End for reversed ranges");
+                }
             } else {
-                checkArgument(TimeUUIDs.compare(start, end) <= 0, "Start must be <=End");
+                if (TimeUUIDs.compare(start, end) > 0) {
+                    throw new IllegalArgumentException("Start must be <= End");
+                }
             }
         }
-        checkArgument(limit > 0, "Limit must be >0");
-        checkNotNull(consistency, "consistency");
+
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Lmit must be > 0");
+        }
+        requireNonNull(consistency, "consistency");
         try {
             URI uri = _dataStore.clone()
                     .segment(table, key, "timeline")
@@ -364,9 +365,11 @@ public class DataStoreClient implements AuthDataStore {
     @Override
     public Iterator<Map<String, Object>> scan(String apiKey, String table, @Nullable String fromKeyExclusive,
                                               long limit, boolean includeDeletes, ReadConsistency consistency) {
-        checkNotNull(table, "table");
-        checkArgument(limit > 0, "Limit must be >0");
-        checkNotNull(consistency, "consistency");
+        requireNonNull(table, "table");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Lmit must be > 0");
+        }
+        requireNonNull(consistency, "consistency");
         try {
             URI uri = _dataStore.clone()
                     .segment(table)
@@ -386,8 +389,10 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public Collection<String> getSplits(String apiKey, String table, int desiredRecordsPerSplit) {
-        checkNotNull(table, "table");
-        checkArgument(desiredRecordsPerSplit > 0, "DesiredRecordsPerSplit must be >0");
+        requireNonNull(table, "table");
+        if (desiredRecordsPerSplit <= 0) {
+            throw new IllegalArgumentException("DesiredRecordsPerSplit must be > 0");
+        }
         try {
             URI uri = _dataStore.clone()
                     .segment("_split", table)
@@ -405,10 +410,12 @@ public class DataStoreClient implements AuthDataStore {
     @Override
     public Iterator<Map<String, Object>> getSplit(String apiKey, String table, String split, @Nullable String fromKeyExclusive,
                                                   long limit, boolean includeDeletes, ReadConsistency consistency) {
-        checkNotNull(table, "table");
-        checkNotNull(split, "split");
-        checkArgument(limit > 0, "Limit must be >0");
-        checkNotNull(consistency, "consistency");
+        requireNonNull(table, "table");
+        requireNonNull(split, "split");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Lmit must be > 0");
+        };
+        requireNonNull(consistency, "consistency");
         try {
             URI uri = _dataStore.clone()
                     .segment("_split", table, split)
@@ -433,8 +440,8 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public Iterator<Map<String, Object>> multiGet(String apiKey, final List<Coordinate> coordinates, ReadConsistency consistency) {
-        checkNotNull(coordinates, "coordinates");
-        checkNotNull(consistency, "consistency");
+        requireNonNull(coordinates, "coordinates");
+        requireNonNull(consistency, "consistency");
         try {
             UriBuilder uriBuilder = _dataStore.clone().segment("_multiget").queryParam("consistency", consistency);
             for(Coordinate coordinate : coordinates) {
@@ -457,16 +464,16 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void update(String apiKey, String table, String key, UUID changeId, Delta delta, Audit audit, WriteConsistency consistency) {
-        update(apiKey, table, key, changeId, delta, audit, consistency, false, ImmutableSet.<String>of());
+        update(apiKey, table, key, changeId, delta, audit, consistency, false, Collections.emptySet());
     }
 
     private void update(String apiKey, String table, String key, UUID changeId, Delta delta, Audit audit, WriteConsistency consistency,
                         boolean facade, Set<String> tags) {
-        checkNotNull(table, "table");
-        checkNotNull(key, "key");
-        checkNotNull(delta, "delta");
-        checkNotNull(audit, "audit");
-        checkNotNull(consistency, "consistency");
+        requireNonNull(table, "table");
+        requireNonNull(key, "key");
+        requireNonNull(delta, "delta");
+        requireNonNull(audit, "audit");
+        requireNonNull(consistency, "consistency");
         try {
             UriBuilder uriBuilder = _dataStore.clone()
                     .segment(facade ? "_facade" : "", table, key)
@@ -487,7 +494,7 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void updateAll(String apiKey, Iterable<Update> updates) {
-        updateAll(apiKey, updates, false, ImmutableSet.<String>of());
+        updateAll(apiKey, updates, false, Collections.emptySet());
     }
 
     @Override
@@ -500,7 +507,7 @@ public class DataStoreClient implements AuthDataStore {
 
         // If just one update, use the slightly more compact single record REST api.
         if (updates instanceof Collection && ((Collection) updates).size() == 1) {
-            Update update = Iterables.getOnlyElement(updates);
+            Update update = updates.iterator().next();
             update(apiKey, update.getTable(), update.getKey(), update.getChangeId(), update.getDelta(), update.getAudit(),
                     update.getConsistency(), facade, tags);
             return;
@@ -512,7 +519,7 @@ public class DataStoreClient implements AuthDataStore {
         // request logs--don't want an hour long POST that doesn't show up in the request log until the end of the hour.
         Iterator<Update> updatesIter = updates.iterator();
         for (long batchIdx = 0; updatesIter.hasNext(); batchIdx++) {
-            PeekingIterator<Update> batchIter = TimeLimitedIterator.create(updatesIter, UPDATE_ALL_REQUEST_DURATION, 1);
+            PeekingIterator<Update> batchIter = new PeekingIterator(TimeLimitedIterator.create(updatesIter, UPDATE_ALL_REQUEST_DURATION, 1));
 
             // Grab the first update, assume it's representative (but note it may not be) and copy some of its
             // attributes into the URL query parameters for the *sole* purpose of making the server request logs easier
@@ -542,9 +549,9 @@ public class DataStoreClient implements AuthDataStore {
     @Override
     public void createFacade(String apiKey, String table, FacadeOptions options, Audit audit)
             throws TableExistsException {
-        checkNotNull(table, "table");
-        checkNotNull(options, "options");
-        checkNotNull(audit, "audit");
+        requireNonNull(table, "table");
+        requireNonNull(options, "options");
+        requireNonNull(audit, "audit");
         URI uri = _dataStore.clone()
                 .segment("_facade", table)
                 .queryParam("options", RisonHelper.asORison(options))
@@ -577,7 +584,7 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void updateAllForFacade(String apiKey, Iterable<Update> updates) {
-        updateAll(apiKey, updates, true, ImmutableSet.<String>of());
+        updateAll(apiKey, updates, true, Collections.emptySet());
     }
 
     @Override
@@ -587,10 +594,10 @@ public class DataStoreClient implements AuthDataStore {
 
     @Override
     public void compact(String apiKey, String table, String key, @Nullable Duration ttlOverride, ReadConsistency readConsistency, WriteConsistency writeConsistency) {
-        checkNotNull(table, "table");
-        checkNotNull(key, "key");
-        checkNotNull(readConsistency, "readConsistency");
-        checkNotNull(writeConsistency, "writeConsistency");
+        requireNonNull(table, "table");
+        requireNonNull(key, "key");
+        requireNonNull(readConsistency, "readConsistency");
+        requireNonNull(writeConsistency, "writeConsistency");
         try {
             Integer ttlOverrideSeconds = (ttlOverride != null) ? Ttls.toSeconds(ttlOverride, 0, Integer.MAX_VALUE) : null;
             URI uri = _dataStore.clone()
@@ -711,7 +718,7 @@ public class DataStoreClient implements AuthDataStore {
     }
 
     private String basicAuthCredentials(String credentials) {
-        return String.format("Basic %s", Base64.encodeBase64String(credentials.getBytes(Charsets.UTF_8)));
+        return String.format("Basic %s", Base64.encodeBase64String(credentials.getBytes(Charset.forName("UTF-8"))));
     }
 
     private Object[] optional(Object queryArg) {

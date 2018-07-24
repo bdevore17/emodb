@@ -1,7 +1,7 @@
 package com.bazaarvoice.emodb.sor.client;
 
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ConfiguredFixedHostDiscoverySource;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ConfiguredPayload;
+import com.bazaarvoice.emodb.common.discovery.ConfiguredFixedHostDiscoverySource;
+import com.bazaarvoice.emodb.common.discovery.ConfiguredPayload;
 import com.fasterxml.jackson.annotation.JsonCreator;
 
 import java.util.Map;
@@ -12,7 +12,7 @@ import java.util.Map;
  * the client and EmoDB servers aren't in the same data center and don't have access to the same ZooKeeper
  * ensemble.
  *
- * @see ConfiguredFixedHostDiscoverySource
+ * @see com.bazaarvoice.emodb.common.discovery.ConfiguredFixedHostDiscoverySource
  */
 public class DataStoreFixedHostDiscoverySource extends ConfiguredFixedHostDiscoverySource {
 

@@ -2,13 +2,12 @@ package com.bazaarvoice.emodb.sor.client;
 
 import com.bazaarvoice.emodb.client.EmoClient;
 import com.bazaarvoice.emodb.client.EmoClientException;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.Payload;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ServiceNames;
 import com.bazaarvoice.emodb.common.json.JsonStreamingEOFException;
+import com.bazaarvoice.emodb.common.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.ServiceNames;
 import com.bazaarvoice.ostrich.MultiThreadedServiceFactory;
 import com.bazaarvoice.ostrich.ServiceEndPoint;
 import com.bazaarvoice.ostrich.pool.ServicePoolBuilder;
-import com.google.common.net.HttpHeaders;
 
 import java.net.URI;
 
@@ -58,7 +57,7 @@ abstract public class AbstractDataStoreClientFactoryBase<T> implements MultiThre
     public boolean isHealthy(ServiceEndPoint endPoint) {
         URI adminUrl = Payload.valueOf(endPoint.getPayload()).getAdminUrl();
         return _client.resource(adminUrl).path("/healthcheck")
-                .header(HttpHeaders.CONNECTION, "close")
+                .header("Connection", "close")
                 .head().getStatus() == 200;
     }
 }
