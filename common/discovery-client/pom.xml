@@ -8,7 +8,7 @@
         <relativePath>../../parent/pom.xml</relativePath>
     </parent>
 
-    <artifactId>emodb-common-client-placeholder</artifactId>
+    <artifactId>emodb-common-discovery-client</artifactId>
     <packaging>jar</packaging>
 
     <name>EmoDB Client Placeholder</name>
