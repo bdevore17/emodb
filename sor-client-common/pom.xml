@@ -57,7 +57,7 @@
         </dependency>
         <dependency>
             <groupId>com.bazaarvoice.emodb</groupId>
-            <artifactId>emodb-common-client-placeholder</artifactId>
+            <artifactId>emodb-common-discovery-client</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
