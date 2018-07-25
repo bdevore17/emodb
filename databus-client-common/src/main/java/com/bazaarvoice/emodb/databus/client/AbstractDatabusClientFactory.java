@@ -2,15 +2,14 @@ package com.bazaarvoice.emodb.databus.client;
 
 import com.bazaarvoice.emodb.client.EmoClient;
 import com.bazaarvoice.emodb.client.EmoClientException;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.Payload;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ServiceNames;
+import com.bazaarvoice.emodb.common.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.ServiceNames;
 import com.bazaarvoice.emodb.databus.api.AuthDatabus;
 import com.bazaarvoice.emodb.databus.api.Databus;
 import com.bazaarvoice.ostrich.MultiThreadedServiceFactory;
 import com.bazaarvoice.ostrich.ServiceEndPoint;
 import com.bazaarvoice.ostrich.partition.ConsistentHashPartitionFilter;
 import com.bazaarvoice.ostrich.pool.ServicePoolBuilder;
-import com.google.common.net.HttpHeaders;
 
 import java.net.URI;
 
@@ -69,7 +68,7 @@ abstract public class AbstractDatabusClientFactory implements MultiThreadedServi
     public boolean isHealthy(ServiceEndPoint endPoint) {
         URI adminUrl = Payload.valueOf(endPoint.getPayload()).getAdminUrl();
         return _client.resource(adminUrl).path("/healthcheck")
-                .header(HttpHeaders.CONNECTION, "close")
+                .header("Connection", "close")
                 .head().getStatus() == 200;
     }
 
