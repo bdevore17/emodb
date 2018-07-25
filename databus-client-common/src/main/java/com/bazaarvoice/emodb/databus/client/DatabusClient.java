@@ -36,8 +36,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.TimeZone;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Databus client implementation that routes API calls to the EmoDB service.  The actual HTTP communication
@@ -67,14 +66,16 @@ public class DatabusClient implements AuthDatabus {
 
 
     public DatabusClient(URI endPoint, boolean partitionSafe, EmoClient client) {
-        _client = checkNotNull(client, "client");
+        _client = requireNonNull(client, "client");
         _databus = EmoUriBuilder.fromUri(endPoint);
         _partitionSafe = partitionSafe;
     }
 
     @Override
     public Iterator<Subscription> listSubscriptions(String apiKey, @Nullable String fromSubscriptionExclusive, long limit) {
-        checkArgument(limit > 0, "Limit must be >0");
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be > 0");
+        }
         try {
             // Note: Buffers everything in memory and does not stream results one-by-one like DataStore does.
             URI uri = _databus.clone()
@@ -99,8 +100,8 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public void subscribe(@Credential String apiKey, String subscription, Condition tableFilter, Duration subscriptionTtl, Duration eventTtl, boolean includeDefaultJoinFilter) {
-        checkNotNull(subscription, "subscription");
-        checkNotNull(tableFilter, "tableFilter");
+        requireNonNull(subscription, "subscription");
+        requireNonNull(tableFilter, "tableFilter");
         try {
             URI uri = _databus.clone()
                     .segment(subscription)
@@ -120,7 +121,7 @@ public class DatabusClient implements AuthDatabus {
     // Any server can manage subscriptions, no need for @PartitionKey
     @Override
     public void unsubscribe(String apiKey, @PartitionKey String subscription) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription)
@@ -136,7 +137,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public Subscription getSubscription(String apiKey, String subscription) throws UnknownSubscriptionException {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription)
@@ -156,7 +157,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public long getEventCountUpTo(String apiKey, @PartitionKey String subscription, long limit) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "size")
@@ -174,7 +175,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public long getClaimCount(String apiKey, @PartitionKey String subscription) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "claimcount")
@@ -191,7 +192,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public Iterator<Event> peek(String apiKey, @PartitionKey String subscription, int limit) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "peek")
@@ -209,8 +210,8 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public PollResult poll(String apiKey, @PartitionKey String subscription, Duration claimTtl, int limit) {
-        checkNotNull(subscription, "subscription");
-        checkNotNull(claimTtl, "claimTtl");
+        requireNonNull(subscription, "subscription");
+        requireNonNull(claimTtl, "claimTtl");
 
         URI uri = getPollUriBuilder(subscription, claimTtl, limit).build();
         EmoResponse response = _client.resource(uri)
@@ -249,9 +250,9 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public void renew(String apiKey, @PartitionKey String subscription, Collection<String> eventKeys, Duration claimTtl) {
-        checkNotNull(subscription, "subscription");
-        checkNotNull(eventKeys, "eventKeys");
-        checkNotNull(claimTtl, "claimTtl");
+        requireNonNull(subscription, "subscription");
+        requireNonNull(eventKeys, "eventKeys");
+        requireNonNull(claimTtl, "claimTtl");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "renew")
@@ -269,8 +270,8 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public void acknowledge(String apiKey, @PartitionKey String subscription, Collection<String> eventKeys) {
-        checkNotNull(subscription, "subscription");
-        checkNotNull(eventKeys, "eventKeys");
+        requireNonNull(subscription, "subscription");
+        requireNonNull(eventKeys, "eventKeys");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "ack")
@@ -293,7 +294,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public String replayAsyncSince(String apiKey, String subscription, Date since) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             UriBuilder uriBuilder = _databus.clone().segment(subscription, "replay");
             if (since != null) {
@@ -314,7 +315,7 @@ public class DatabusClient implements AuthDatabus {
     // Any server can get the replay status, no need for @PartitionKey
     @Override
     public ReplaySubscriptionStatus getReplayStatus(String apiKey, String reference) {
-        checkNotNull(reference, "reference");
+        requireNonNull(reference, "reference");
         try {
             URI uri = _databus.clone()
                     .segment("_replay")
@@ -331,8 +332,8 @@ public class DatabusClient implements AuthDatabus {
     // Any server can initiate a move request, no need for @PartitionKey
     @Override
     public String moveAsync(String apiKey, String from, String to) {
-        checkNotNull(from, "from");
-        checkNotNull(to, "to");
+        requireNonNull(from, "from");
+        requireNonNull(to, "to");
         try {
             URI uri = _databus.clone()
                     .segment("_move")
@@ -351,7 +352,7 @@ public class DatabusClient implements AuthDatabus {
     // Any server can get the move status, no need for @PartitionKey
     @Override
     public MoveSubscriptionStatus getMoveStatus(String apiKey, String reference) {
-        checkNotNull(reference, "reference");
+        requireNonNull(reference, "reference");
         try {
             URI uri = _databus.clone()
                     .segment("_move")
@@ -367,9 +368,9 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public void injectEvent(String apiKey, String subscription, String table, String key) {
-        checkNotNull(subscription, "subscription");
-        checkNotNull(table, "table");
-        checkNotNull(key, "key");
+        requireNonNull(subscription, "subscription");
+        requireNonNull(table, "table");
+        requireNonNull(key, "key");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "inject")
@@ -386,7 +387,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public void unclaimAll(String apiKey, @PartitionKey String subscription) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "unclaimall")
@@ -402,7 +403,7 @@ public class DatabusClient implements AuthDatabus {
 
     @Override
     public void purge(String apiKey, @PartitionKey String subscription) {
-        checkNotNull(subscription, "subscription");
+        requireNonNull(subscription, "subscription");
         try {
             URI uri = _databus.clone()
                     .segment(subscription, "purge")
