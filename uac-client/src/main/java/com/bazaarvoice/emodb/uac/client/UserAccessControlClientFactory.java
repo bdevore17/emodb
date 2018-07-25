@@ -2,8 +2,8 @@ package com.bazaarvoice.emodb.uac.client;
 
 import com.bazaarvoice.emodb.client.EmoClient;
 import com.bazaarvoice.emodb.client.EmoClientException;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.Payload;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ServiceNames;
+import com.bazaarvoice.emodb.common.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.ServiceNames;
 import com.bazaarvoice.emodb.common.jersey.dropwizard.JerseyEmoClient;
 import com.bazaarvoice.emodb.common.json.JsonStreamingEOFException;
 import com.bazaarvoice.emodb.uac.api.AuthUserAccessControl;

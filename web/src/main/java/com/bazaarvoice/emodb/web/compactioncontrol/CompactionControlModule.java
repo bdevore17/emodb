@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.web.compactioncontrol;
 
-import com.bazaarvoice.emodb.common.dropwizard.discovery.PayloadBuilder;
+import com.bazaarvoice.emodb.common.discovery.PayloadBuilder;
 import com.bazaarvoice.emodb.common.dropwizard.guice.ServerCluster;
 import com.bazaarvoice.emodb.common.dropwizard.healthcheck.HealthCheckRegistry;
 import com.bazaarvoice.emodb.common.dropwizard.lifecycle.LifeCycleRegistry;

@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.databus.repl;
 
-import com.bazaarvoice.emodb.common.dropwizard.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.Payload;
 import com.bazaarvoice.ostrich.MultiThreadedServiceFactory;
 import com.bazaarvoice.ostrich.ServiceEndPoint;
 import com.bazaarvoice.ostrich.pool.ServicePoolBuilder;
