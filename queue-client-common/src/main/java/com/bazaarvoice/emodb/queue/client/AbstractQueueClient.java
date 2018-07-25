@@ -13,7 +13,6 @@ import com.bazaarvoice.emodb.queue.api.MoveQueueStatus;
 import com.bazaarvoice.emodb.queue.api.UnknownMoveException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.util.JSONWrappedObject;
-import com.google.common.collect.Iterables;
 
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -24,7 +23,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 abstract class AbstractQueueClient {
     protected final EmoClient _client;
@@ -32,14 +31,14 @@ abstract class AbstractQueueClient {
     protected final boolean _partitionSafe;
 
     protected AbstractQueueClient(URI endPoint, boolean partitionSafe, EmoClient client) {
-        _client = checkNotNull(client, "client");
+        _client = requireNonNull(client, "client");
         _queueService = EmoUriBuilder.fromUri(endPoint);
         _partitionSafe = partitionSafe;
     }
 
     // Any server can handle sending messages, no need for @PartitionKey
     public void send(String apiKey, String queue, final Object message) {
-        checkNotNull(queue, "queue");
+        requireNonNull(queue, "queue");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "send")
@@ -57,8 +56,8 @@ abstract class AbstractQueueClient {
 
     // Any server can handle sending messages, no need for @PartitionKey
     public void sendAll(String apiKey, String queue, Collection<?> messages) {
-        checkNotNull(queue, "queue");
-        checkNotNull(messages, "messages");
+        requireNonNull(queue, "queue");
+        requireNonNull(messages, "messages");
         if (messages.isEmpty()) {
             return;
         }
@@ -77,13 +76,13 @@ abstract class AbstractQueueClient {
 
     // Any server can handle sending messages, no need for @PartitionKey
     public void sendAll(String apiKey, Map<String, ? extends Collection<?>> messagesByQueue) {
-        checkNotNull(messagesByQueue, "messagesByQueue");
+        requireNonNull(messagesByQueue, "messagesByQueue");
         if (messagesByQueue.isEmpty()) {
             return;
         }
         if (messagesByQueue.size() == 1) {
             // Prefer the single queue REST call because it'll log the queue name in the HTTP server request logs.
-            Map.Entry<String, ? extends Collection<?>> entry = Iterables.getOnlyElement(messagesByQueue.entrySet());
+            Map.Entry<String, ? extends Collection<?>> entry = messagesByQueue.entrySet().iterator().next();
             sendAll(apiKey, entry.getKey(), entry.getValue());
             return;
         }
@@ -101,7 +100,7 @@ abstract class AbstractQueueClient {
     }
 
     protected long doGetMessageCountUpTo(String apiKey, String queue, long limit, boolean partitioned) {
-        checkNotNull(queue, "queue");
+        requireNonNull(queue, "queue");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "size")
@@ -118,7 +117,7 @@ abstract class AbstractQueueClient {
     }
 
     protected long doGetClaimCount(String apiKey, String queue) {
-        checkNotNull(queue, "queue");
+        requireNonNull(queue, "queue");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "claimcount")
@@ -134,7 +133,7 @@ abstract class AbstractQueueClient {
     }
 
     protected List<Message> doPeek(String apiKey, String queue, int limit, boolean partitioned) {
-        checkNotNull(queue, "queue");
+        requireNonNull(queue, "queue");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "peek")
@@ -151,8 +150,8 @@ abstract class AbstractQueueClient {
     }
 
     protected List<Message> doPoll(String apiKey, String queue, Duration claimTtl, int limit) {
-        checkNotNull(queue, "queue");
-        checkNotNull(claimTtl, "claimTtl");
+        requireNonNull(queue, "queue");
+        requireNonNull(claimTtl, "claimTtl");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "poll")
@@ -170,9 +169,9 @@ abstract class AbstractQueueClient {
     }
 
     protected void doRenew(String apiKey, String queue, Collection<String> messageIds, Duration claimTtl) {
-        checkNotNull(queue, "queue");
-        checkNotNull(messageIds, "messageIds");
-        checkNotNull(claimTtl, "claimTtl");
+        requireNonNull(queue, "queue");
+        requireNonNull(messageIds, "messageIds");
+        requireNonNull(claimTtl, "claimTtl");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "renew")
@@ -189,8 +188,8 @@ abstract class AbstractQueueClient {
     }
 
     protected void doAcknowledge(String apiKey, String queue, Collection<String> messageIds) {
-        checkNotNull(queue, "queue");
-        checkNotNull(messageIds, "messageIds");
+        requireNonNull(queue, "queue");
+        requireNonNull(messageIds, "messageIds");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "ack")
@@ -206,8 +205,8 @@ abstract class AbstractQueueClient {
     }
 
     protected String doMoveAsync(String apiKey, String from, String to) {
-        checkNotNull(from, "from");
-        checkNotNull(to, "to");
+        requireNonNull(from, "from");
+        requireNonNull(to, "to");
         try {
             URI uri = _queueService.clone()
                     .segment("_move")
@@ -224,7 +223,7 @@ abstract class AbstractQueueClient {
     }
 
     protected MoveQueueStatus doGetMoveStatus(String apiKey, String reference) {
-        checkNotNull(reference, "reference");
+        requireNonNull(reference, "reference");
         try {
             URI uri = _queueService.clone()
                     .segment("_move")
@@ -239,7 +238,7 @@ abstract class AbstractQueueClient {
     }
 
     protected void doUnclaimAll(String apiKey, String queue) {
-        checkNotNull(queue, "queue");
+        requireNonNull(queue, "queue");
         try {
             URI uri = _queueService.clone()
                     .segment(queue, "unclaimall")
@@ -254,7 +253,7 @@ abstract class AbstractQueueClient {
     }
 
     protected void doPurge(String apiKey, String queue) {
-        checkNotNull(queue, "queue");
+        requireNonNull(queue, "queue");
         try {
             URI uri = _queueService.clone()
                     .segment(queue)

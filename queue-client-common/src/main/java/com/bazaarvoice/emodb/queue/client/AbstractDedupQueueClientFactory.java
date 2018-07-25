@@ -1,7 +1,7 @@
 package com.bazaarvoice.emodb.queue.client;
 
 import com.bazaarvoice.emodb.client.EmoClient;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ServiceNames;
+import com.bazaarvoice.emodb.common.discovery.ServiceNames;
 import com.bazaarvoice.emodb.queue.api.AuthDedupQueueService;
 import com.bazaarvoice.emodb.queue.api.DedupQueueService;
 import com.bazaarvoice.ostrich.MultiThreadedServiceFactory;
