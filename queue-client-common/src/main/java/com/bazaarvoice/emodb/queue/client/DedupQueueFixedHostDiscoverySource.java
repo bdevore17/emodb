@@ -1,7 +1,7 @@
 package com.bazaarvoice.emodb.queue.client;
 
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ConfiguredFixedHostDiscoverySource;
-import com.bazaarvoice.emodb.common.dropwizard.discovery.ConfiguredPayload;
+import com.bazaarvoice.emodb.common.discovery.ConfiguredFixedHostDiscoverySource;
+import com.bazaarvoice.emodb.common.discovery.ConfiguredPayload;
 import com.fasterxml.jackson.annotation.JsonCreator;
 
 import java.util.Map;
