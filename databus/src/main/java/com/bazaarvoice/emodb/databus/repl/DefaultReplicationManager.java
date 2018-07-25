@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.databus.repl;
 
-import com.bazaarvoice.emodb.common.dropwizard.discovery.PayloadBuilder;
+import com.bazaarvoice.emodb.common.discovery.PayloadBuilder;
 import com.bazaarvoice.emodb.common.dropwizard.lifecycle.LifeCycleRegistry;
 import com.bazaarvoice.emodb.common.dropwizard.lifecycle.ManagedGuavaService;
 import com.bazaarvoice.emodb.common.zookeeper.store.GuavaServiceController;

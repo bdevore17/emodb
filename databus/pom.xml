@@ -24,8 +24,18 @@
         </dependency>
         <dependency>
             <groupId>com.bazaarvoice.emodb</groupId>
-            <artifactId>emodb-common-dropwizard</artifactId>
+            <artifactId>emodb-common-discovery</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.bazaarvoice.ostrich</groupId>
+                    <artifactId>ostrich-core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.bazaarvoice.ostrich</groupId>
+            <artifactId>ostrich-core</artifactId>
         </dependency>
         <dependency>
             <groupId>com.bazaarvoice.emodb</groupId>

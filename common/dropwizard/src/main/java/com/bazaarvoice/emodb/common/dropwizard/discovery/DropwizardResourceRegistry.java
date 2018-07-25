@@ -1,5 +1,8 @@
 package com.bazaarvoice.emodb.common.dropwizard.discovery;
 
+import com.bazaarvoice.emodb.common.discovery.Payload;
+import com.bazaarvoice.emodb.common.discovery.PayloadBuilder;
+import com.bazaarvoice.emodb.common.discovery.ServiceNames;
 import com.bazaarvoice.emodb.common.dropwizard.guice.SelfAdminHostAndPort;
 import com.bazaarvoice.emodb.common.dropwizard.guice.SelfHostAndPort;
 import com.bazaarvoice.ostrich.ServiceEndPoint;
@@ -48,7 +51,7 @@ public class DropwizardResourceRegistry implements ResourceRegistry {
 
         Payload payload = new PayloadBuilder()
                 .withResource(resource)
-                .withHostAndPort(_self)
+                .withHostAndPort(com.bazaarvoice.emodb.common.discovery.HostAndPort.fromParts(_self.getHostText(), _self.getPort()))
                 .withAdminPort(_selfAdmin.getPort())
                 .withExtensions(ImmutableMap.of("proxy", false))  // EndPoint is not a load-balancing proxy (eg. ELB)
                 .build();

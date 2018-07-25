@@ -29,7 +29,7 @@
         </dependency>
         <dependency>
             <groupId>com.bazaarvoice.emodb</groupId>
-            <artifactId>emodb-common-discovery-client</artifactId>
+            <artifactId>emodb-common-discovery</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

@@ -1,18 +1,17 @@
-package com.bazaarvoice.emodb.common.dropwizard.discovery;
+package com.bazaarvoice.emodb.common.discovery;
 
 import com.bazaarvoice.emodb.common.json.JsonHelper;
-import com.bazaarvoice.ostrich.ServiceEndPoint;
-import com.google.common.base.Objects;
-import com.google.common.collect.Maps;
 
 import java.net.URI;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 /**
- * SOA (Ostrich) payload object, typically embedded within a {@link ServiceEndPoint}.
+ * SOA (Ostrich) payload object, typically embedded within a ServiceEndpoint.
  * <p>
  * Dropwizard web servers expose a service URL (typically port 8080) which is the main RESTful
  * end point plus they expose an administration URL (typically port 8081) which is used for
@@ -25,10 +24,9 @@ public class Payload {
 
     public static Payload valueOf(String string) {
         Map<?, ?> map = JsonHelper.fromJson(string, Map.class);
-        URI serviceUri = URI.create((String) checkNotNull(map.get("serviceUrl"), "serviceUrl"));
-        URI adminUri = URI.create((String) checkNotNull(map.get("adminUrl"), "adminUrl"));
-        @SuppressWarnings("unchecked") Map<String, ?> extensions = Objects.firstNonNull(
-                (Map<String, ?>) map.get("extensions"), Collections.<String, Object>emptyMap());
+        URI serviceUri = URI.create((String) requireNonNull(map.get("serviceUrl"), "serviceUrl"));
+        URI adminUri = URI.create((String) requireNonNull(map.get("adminUrl"), "adminUrl"));
+        @SuppressWarnings("unchecked") Map<String, ?> extensions = Optional.ofNullable((Map<String, ?>) map.get("extensions")).orElse(Collections.emptyMap());
         return new Payload(serviceUri, adminUri, extensions);
     }
 
@@ -37,9 +35,9 @@ public class Payload {
     }
 
     public Payload(URI serviceUrl, URI adminUrl, Map<String, ?> extensions) {
-        _serviceUrl = checkNotNull(serviceUrl, "serviceUrl");
-        _adminUrl = checkNotNull(adminUrl, "adminUrl");
-        _extensions = checkNotNull(extensions, "extensions");
+        _serviceUrl = requireNonNull(serviceUrl, "serviceUrl");
+        _adminUrl = requireNonNull(adminUrl, "adminUrl");
+        _extensions = requireNonNull(extensions, "extensions");
     }
 
     public URI getServiceUrl() {
@@ -56,7 +54,7 @@ public class Payload {
 
     @Override
     public String toString() {
-        Map<String, Object> map = Maps.newLinkedHashMap();
+        Map<String, Object> map = new LinkedHashMap<>();
         map.put("serviceUrl", _serviceUrl);
         map.put("adminUrl", _adminUrl);
         if (!_extensions.isEmpty()) {
