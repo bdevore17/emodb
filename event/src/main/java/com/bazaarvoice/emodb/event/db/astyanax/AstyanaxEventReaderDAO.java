@@ -39,12 +39,12 @@ import com.netflix.astyanax.serializers.UUIDSerializer;
 import com.netflix.astyanax.util.RangeBuilder;
 import io.dropwizard.lifecycle.ExecutorServiceManager;
 import io.dropwizard.util.Duration;
+import java.util.Collections;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
-import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.Date;
@@ -368,7 +368,7 @@ public class AstyanaxEventReaderDAO implements EventReaderDAO {
                 // Channel was completely empty.  Cache a TimeUUID for the current time.  This will cause future calls
                 // to read at most 1 minute of tombstones until the cache expires 10 seconds later.
                 cacheOldestSlabForChannel(channel, TimeUUIDs.newUUID());
-                return Iterators.emptyIterator();
+                return Collections.emptyIterator();
             }
         }
     }
