@@ -34,7 +34,6 @@
         <module>common/client</module>
         <module>common/dropwizard-client</module>
         <module>common/discovery</module>
-        <module>common/jax-rs-client</module>
         <module>auth/auth-client</module>
         <module>auth/auth-core</module>
         <module>auth/auth-test</module>
