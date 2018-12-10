@@ -53,7 +53,7 @@ abstract public class ResourceTestAuthUtil {
         // Add the new resource filter factories to any existing values
         Object existing = properties.get(PackagesResourceConfig.PROPERTY_RESOURCE_FILTER_FACTORIES);
         if (existing == null) {
-            resourceFilterFactories = config.getResourceFilterFactories();
+            resourceFilterFactories = config.getDynamicFeatures();
         } else {
             resourceFilterFactories = Lists.newArrayList();
             if (existing.getClass().isArray()) {
@@ -63,7 +63,7 @@ abstract public class ResourceTestAuthUtil {
             } else {
                 resourceFilterFactories.add(existing);
             }
-            resourceFilterFactories.addAll(config.getResourceFilterFactories());
+            resourceFilterFactories.addAll(config.getDynamicFeatures());
         }
 
         properties.put(PackagesResourceConfig.PROPERTY_RESOURCE_FILTER_FACTORIES, resourceFilterFactories);
