@@ -22,12 +22,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
         checkNotNull(securityManager, "securityManager");
         ApiKeyAuthenticationTokenGenerator tokenGenerator = new ApiKeyAuthenticationTokenGenerator();
 
+        // TODO: revisit this and make sure that the features are in the right lists
+
         return new JerseyAuthConfiguration(
                 ImmutableList.of(
                         AuthenticationExceptionHandler.class,
                         AuthorizationExceptionHandler.class,
                         UnauthorizedExceptionMapper.class,
-                        new AuthenticatedSubjectProvider(securityManager)
+                        new AuthenticatedSubjectFeature(securityManager)
                 ),
                 ImmutableList.of(new AuthDynamicFeature(securityManager, tokenGenerator))
         );

@@ -12,11 +12,13 @@ import com.bazaarvoice.emodb.auth.permissions.PermissionIDs;
 import com.bazaarvoice.emodb.auth.permissions.PermissionUpdateRequest;
 import com.bazaarvoice.emodb.auth.test.ResourceTestAuthUtil;
 import com.google.common.collect.ImmutableMap;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
 import io.dropwizard.testing.junit.ResourceTestRule;
+import javax.ws.rs.client.WebTarget;
 import org.apache.shiro.authz.annotation.RequiresAuthentication;
 import org.apache.shiro.authz.annotation.RequiresPermissions;
+import org.glassfish.jersey.client.ClientResponse;
+import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.test.JerseyTest;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
@@ -193,7 +195,7 @@ public class ResourcePermissionsTest {
                 new PermissionUpdateRequest().permit("city|get|Madrid", "country|get|Spain"));
 
         ClientResponse response = getCountryAndCity(permissionCheck, "Spain", "Madrid", "testkey");
-        assertEquals(response.getEntity(String.class), "Welcome to Madrid, Spain");
+        assertEquals(response.readEntity(String.class), "Welcome to Madrid, Spain");
     }
 
     @Test
@@ -217,7 +219,7 @@ public class ResourcePermissionsTest {
                 new PermissionUpdateRequest().permit("city|get|*", "country|*|*"));
 
         ClientResponse response = getCountryAndCity(permissionCheck, "Spain", "Madrid", "testkey");
-        assertEquals(response.getEntity(String.class), "Welcome to Madrid, Spain");
+        assertEquals(response.readEntity(String.class), "Welcome to Madrid, Spain");
     }
 
     @Test
@@ -265,7 +267,7 @@ public class ResourcePermissionsTest {
                 new PermissionUpdateRequest().permit("city|get|Pipe\\|Town", "country|get|Star\\*Nation"));
 
         ClientResponse response = getCountryAndCity(permissionCheck, "Star*Nation", "Pipe|Town", "testkey");
-        assertEquals(response.getEntity(String.class), "Welcome to Pipe|Town, Star*Nation");
+        assertEquals(response.readEntity(String.class), "Welcome to Pipe|Town, Star*Nation");
     }
 
     @Test
@@ -289,7 +291,7 @@ public class ResourcePermissionsTest {
                 new PermissionUpdateRequest().permit("city|get|Madrid", "country|get|Spain"));
 
         ClientResponse response = getCountryAndCity(permissionCheck, "Spain", "Madrid", null);
-        assertEquals(response.getEntity(String.class), "Welcome to Madrid, Spain");
+        assertEquals(response.readEntity(String.class), "Welcome to Madrid, Spain");
     }
 
     @Test
@@ -320,10 +322,10 @@ public class ResourcePermissionsTest {
     private ClientResponse getCountryAndCity(PermissionCheck permissionCheck, String country, String city, String apiKey)
             throws Exception {
         String uri = format(_uriFormatMap.get(permissionCheck), URLEncoder.encode(country, "UTF-8"), URLEncoder.encode(city, "UTF-8"));
-        WebResource resource = _resourceTestRule.client().resource(uri);
+        WebTarget resource = _resourceTestRule.client().target(uri);
         if (apiKey != null) {
-            return resource.header(ApiKeyRequest.AUTHENTICATION_HEADER, apiKey).get(ClientResponse.class);
+            return resource.request().header(ApiKeyRequest.AUTHENTICATION_HEADER, apiKey).get(ClientResponse.class);
         }
-        return resource.get(ClientResponse.class);
+        return resource.request().get(ClientResponse.class);
     }
 }

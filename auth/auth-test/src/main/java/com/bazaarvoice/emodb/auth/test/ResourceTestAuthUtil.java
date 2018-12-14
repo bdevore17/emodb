@@ -51,7 +51,7 @@ abstract public class ResourceTestAuthUtil {
         List resourceFilterFactories;
 
         // Add the new resource filter factories to any existing values
-        Object existing = properties.get(PackagesResourceConfig.PROPERTY_RESOURCE_FILTER_FACTORIES);
+        Object existing = properties.get(PackagesRe);
         if (existing == null) {
             resourceFilterFactories = config.getDynamicFeatures();
         } else {
