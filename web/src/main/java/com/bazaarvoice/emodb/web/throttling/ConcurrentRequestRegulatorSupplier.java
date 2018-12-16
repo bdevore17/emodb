@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.web.throttling;
 
-import com.sun.jersey.spi.container.ContainerRequest;
+import org.glassfish.jersey.server.ContainerRequest;
 
 /**
  * Base interface for providing a {@link ConcurrentRequestRegulator} based on the request.  Typically the regulator

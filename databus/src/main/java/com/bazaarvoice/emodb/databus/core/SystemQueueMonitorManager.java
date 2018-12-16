@@ -37,12 +37,7 @@ public class SystemQueueMonitorManager {
                               final MetricRegistry metricRegistry) {
         LeaderService leaderService = new LeaderService(
                 curator, "/leader/queue-monitor", self.toString(), "Leader-QueueMonitor", 1, TimeUnit.MINUTES,
-                new Supplier<Service>() {
-                    @Override
-                    public Service get() {
-                        return new SystemQueueMonitor(eventStore, dataCenters, clusterInfo, masterFanoutPartitions, dataCenterFanoutPartitions, metricRegistry);
-                    }
-                });
+                () -> new SystemQueueMonitor(eventStore, dataCenters, clusterInfo, masterFanoutPartitions, dataCenterFanoutPartitions, metricRegistry));
         ServiceFailureListener.listenTo(leaderService, metricRegistry);
         dropwizardTask.register("queue-monitor", leaderService);
         lifeCycle.manage(new ManagedGuavaService(leaderService));

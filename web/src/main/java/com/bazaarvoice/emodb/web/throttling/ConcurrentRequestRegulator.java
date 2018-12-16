@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.web.throttling;
 
-import com.sun.jersey.spi.container.ContainerRequest;
+import org.glassfish.jersey.server.ContainerRequest;
 
 /**
  * Defines how throttling should be applied to a {@link ContainerRequest}.

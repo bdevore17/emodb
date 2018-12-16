@@ -8,8 +8,6 @@ import com.bazaarvoice.ostrich.ServiceEndPoint;
 import com.bazaarvoice.ostrich.partition.ConsistentHashPartitionFilter;
 import com.bazaarvoice.ostrich.partition.PartitionFilter;
 import com.codahale.metrics.MetricRegistry;
-import com.google.common.base.Optional;
-import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -21,6 +19,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.Service;
+import java.util.Optional;
 import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -116,7 +115,7 @@ public class OstrichOwnerGroup<T extends Service> implements OwnerGroup<T> {
     @Override
     public T startIfOwner(String name, Duration waitDuration) {
         long timeoutAt = System.currentTimeMillis() + waitDuration.toMillis();
-        LeaderService leaderService = _leaderMap.getUnchecked(name).orNull();
+        LeaderService leaderService = _leaderMap.getUnchecked(name).orElse(null);
         if (leaderService == null || !awaitRunning(leaderService, timeoutAt)) {
             return null;
         }
@@ -207,7 +206,7 @@ public class OstrichOwnerGroup<T extends Service> implements OwnerGroup<T> {
 
     private Optional<LeaderService> startService(final String name) {
         if (!isOwner(name)) {
-            return Optional.absent();
+            return Optional.empty();
         }
 
         _log.info("Starting owned service {}: {}", _group, name);
@@ -217,15 +216,10 @@ public class OstrichOwnerGroup<T extends Service> implements OwnerGroup<T> {
         String taskName = String.format("%s-%s", _group.toLowerCase(), name);
 
         LeaderService leaderService = new LeaderService(_curator, zkLeaderPath, _selfId,
-                threadName, 1, TimeUnit.MINUTES, new Supplier<Service>() {
-            @Override
-            public Service get() {
-                return _factory.create(name);
-            }
-        });
+                threadName, 1, TimeUnit.MINUTES, () ->  _factory.create(name));
         ServiceFailureListener.listenTo(leaderService, _metricRegistry);
         _dropwizardTask.register(taskName, leaderService);
-        leaderService.start();
+        leaderService.startAsync().awaitRunning();
         return Optional.of(leaderService);
     }
 
@@ -233,7 +227,7 @@ public class OstrichOwnerGroup<T extends Service> implements OwnerGroup<T> {
         if (ref.isPresent()) {
             Service service = ref.get();
             _log.info("Stopping owned service {}: {}", _group, name);
-            service.stop();
+            service.stopAsync().awaitTerminated();
         }
     }
 
@@ -247,7 +241,7 @@ public class OstrichOwnerGroup<T extends Service> implements OwnerGroup<T> {
             return false;
         }
         try {
-            service.start().get(waitMillis, TimeUnit.MILLISECONDS);
+            service.startAsync().awaitRunning(waitMillis, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             // Fall through
         }

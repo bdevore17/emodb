@@ -413,13 +413,13 @@ public class DataStoreModule extends PrivateModule {
     @Provides @Singleton @TableChangesEnabled
     ValueStore<Boolean> provideTableChangesEnabled(@DataStoreZooKeeper CuratorFramework curator,
                                                    LifeCycleRegistry lifeCycle) {
-        return lifeCycle.manage(new ZkValueStore<>(curator, "settings/table-changes-enabled", new ZkBooleanSerializer(), true));
+        return lifeCycle.manage(new ZkValueStore<>(curator, "/settings/table-changes-enabled", new ZkBooleanSerializer(), true));
     }
 
     @Provides @Singleton @Maintenance
     MapStore<Double> provideRateLimiterSettings(@DataStoreZooKeeper CuratorFramework curator,
                                                 LifeCycleRegistry lifeCycle) {
-        return lifeCycle.manage(new ZkMapStore<>(curator, "background_table_maintenance-rate-limits", new ZkDoubleSerializer()));
+        return lifeCycle.manage(new ZkMapStore<>(curator, "/background_table_maintenance-rate-limits", new ZkDoubleSerializer()));
     }
 
     @Provides @Singleton @Maintenance
@@ -430,7 +430,7 @@ public class DataStoreModule extends PrivateModule {
     @Provides @Singleton @MinSplitSizeMap
     MapStore<DataStoreMinSplitSize> provideMinSplitSizeMap(@DataStoreZooKeeper CuratorFramework curator,
                                                 LifeCycleRegistry lifeCycle) {
-        return lifeCycle.manage(new ZkMapStore<>(curator, "min-split-size", new ZKDataStoreMinSplitSizeSerializer()));
+        return lifeCycle.manage(new ZkMapStore<>(curator, "/min-split-size", new ZKDataStoreMinSplitSizeSerializer()));
     }
 
     @Provides @Singleton @StashRoot

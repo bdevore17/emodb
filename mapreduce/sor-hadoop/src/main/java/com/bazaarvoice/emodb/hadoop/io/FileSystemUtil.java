@@ -149,7 +149,7 @@ public class FileSystemUtil {
             @Override
             protected Iterator<Map<String, Object>> getRowIterator()
                     throws IOException {
-                return Iterators.emptyIterator();
+                return Collections.emptyIterator();
             }
 
             @Override

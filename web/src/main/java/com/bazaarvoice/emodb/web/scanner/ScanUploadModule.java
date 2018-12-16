@@ -87,8 +87,8 @@ import com.google.inject.TypeLiteral;
 import com.google.inject.assistedinject.FactoryModuleBuilder;
 import com.google.inject.name.Named;
 import com.google.inject.name.Names;
-import com.sun.jersey.api.client.Client;
 import io.dropwizard.setup.Environment;
+import javax.ws.rs.client.Client;
 import org.apache.curator.framework.CuratorFramework;
 import org.slf4j.LoggerFactory;
 

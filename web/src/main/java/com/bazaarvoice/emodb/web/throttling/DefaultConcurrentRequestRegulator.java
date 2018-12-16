@@ -2,12 +2,12 @@ package com.bazaarvoice.emodb.web.throttling;
 
 import com.codahale.metrics.Meter;
 import com.google.common.base.Strings;
-import com.sun.jersey.spi.container.ContainerRequest;
 
 import javax.annotation.Nullable;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
 import java.util.concurrent.Semaphore;
+import org.glassfish.jersey.server.ContainerRequest;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -37,15 +37,15 @@ public class DefaultConcurrentRequestRegulator implements ConcurrentRequestRegul
             if (_throttlingMeter != null) {
                 _throttlingMeter.mark();
             }
-            String response = String.format("Too many concurrent requests for %s. Try again later.", request.getPath());
+            String response = String.format("Too many concurrent requests for %s. Try again later.", request.getPath(true));
             throw new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE).entity(response).build());
         }
-        request.getProperties().put(_semaphoreProperty, _semaphore);
+        request.setProperty(_semaphoreProperty, _semaphore);
     }
 
     @Override
     public void release(ContainerRequest request) {
-        Semaphore semaphore = (Semaphore) request.getProperties().get(_semaphoreProperty);
+        Semaphore semaphore = (Semaphore) request.getProperty(_semaphoreProperty);
         if (semaphore != null) {
             semaphore.release();
         }

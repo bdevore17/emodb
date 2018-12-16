@@ -11,6 +11,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;
@@ -24,7 +25,7 @@ public class InMemoryHistoryStore implements HistoryStore {
     public Iterator<Change> getDeltaHistories(String table, String rowId) {
         String key = getKey(table, rowId);
         if (!_historyStore.containsKey(key)) {
-            return Iterators.emptyIterator();
+            return Collections.emptyIterator();
         }
         return Lists.transform(_historyStore.get(key), new Function<History, Change>() {
             @Override

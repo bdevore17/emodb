@@ -274,17 +274,17 @@ public class PartitionedLeaderService implements Managed {
             }
             // It's possible we technically have leadership but are in the process of giving it up because we already
             // are leading the maximum number of partitions.  Verify that this isn't a rejected service.
-            Service delegateService = _leaderService.getCurrentDelegateService().orNull();
+            Service delegateService = _leaderService.getCurrentDelegateService().orElse(null);
             return delegateService == null || !(delegateService instanceof RelinquishService);
         }
         
         boolean relinquishLeadership() {
             if (hasLeadership()) {
                 // Release leadership by stopping the delegate service, but do not stop the leadership service itself
-                Service delegateService = _leaderService.getCurrentDelegateService().orNull();
+                Service delegateService = _leaderService.getCurrentDelegateService().orElse(null);
                 if (delegateService != null) {
                     _log.info("Relinquishing leadership of partition {} for {}", _partition, _serviceName);
-                    delegateService.stopAsync();
+                    delegateService.stopAsync().awaitTerminated();
                 }
                 return true;
             } else {

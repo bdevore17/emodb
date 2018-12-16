@@ -3,6 +3,8 @@ package com.bazaarvoice.emodb.web.resources.sor;
 import com.bazaarvoice.emodb.sor.delta.Delta;
 import com.bazaarvoice.emodb.sor.delta.Deltas;
 import io.dropwizard.jersey.params.AbstractParam;
+import javax.annotation.Nullable;
+import javax.ws.rs.core.Response;
 
 public class DeltaParam extends AbstractParam<Delta> {
 
@@ -11,8 +13,8 @@ public class DeltaParam extends AbstractParam<Delta> {
     }
 
     @Override
-    protected String errorMessage(String input, Exception e) {
-        return "Invalid json-delta string: " + input;
+    protected String errorMessage(Exception e) {
+        return "Invalid json-delta string";
     }
 
     @Override

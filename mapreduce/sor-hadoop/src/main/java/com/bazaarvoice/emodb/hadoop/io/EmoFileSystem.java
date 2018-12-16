@@ -312,7 +312,7 @@ public class EmoFileSystem extends FileSystem implements EmoInputSplittable {
         private EmoSplitInputStream(String table, String split)
                 throws IOException {
             if (isEmptySplit(split)) {
-                _rows = Iterators.emptyIterator();
+                _rows = Collections.emptyIterator();
             } else {
                 // Get the DataStore and begin streaming the split's rows.
                 CloseableDataStore dataStore = HadoopDataStoreManager.getInstance().getDataStore(_uri, _apiKey, _metricRegistry);

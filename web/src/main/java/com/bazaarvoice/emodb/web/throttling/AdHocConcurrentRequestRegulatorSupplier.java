@@ -4,9 +4,9 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.base.Objects;
 import com.google.common.collect.Maps;
-import com.sun.jersey.spi.container.ContainerRequest;
 
 import java.util.concurrent.ConcurrentMap;
+import org.glassfish.jersey.server.ContainerRequest;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -29,7 +29,7 @@ public class AdHocConcurrentRequestRegulatorSupplier implements ConcurrentReques
 
     @Override
     public ConcurrentRequestRegulator forRequest(ContainerRequest request) {
-        return forRequest(request.getMethod(), request.getPath());
+        return forRequest(request.getMethod(), request.getPath(true));
     }
 
     public ConcurrentRequestRegulator forRequest(String method, String path) {

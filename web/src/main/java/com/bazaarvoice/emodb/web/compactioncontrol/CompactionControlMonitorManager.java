@@ -35,12 +35,7 @@ public class CompactionControlMonitorManager {
                                     final MetricRegistry metricRegistry) {
         LeaderService leaderService = new LeaderService(
                 curator, "/leader/compaction-control-monitor", self.toString(), "Leader-CompactionControlMonitor", 30, TimeUnit.MINUTES,
-                new Supplier<Service>() {
-                    @Override
-                    public Service get() {
-                        return new CompactionControlMonitor(compactionControlSource, clock, metricRegistry);
-                    }
-                });
+                () -> new CompactionControlMonitor(compactionControlSource, clock, metricRegistry));
         ServiceFailureListener.listenTo(leaderService, metricRegistry);
         dropwizardTask.register("stash-runtime-monitor", leaderService);
         lifeCycle.manage(new ManagedGuavaService(leaderService));
