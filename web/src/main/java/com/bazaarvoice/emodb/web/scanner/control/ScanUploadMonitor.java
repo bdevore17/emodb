@@ -40,13 +40,8 @@ public class ScanUploadMonitor extends LeaderService {
                              final DataTools dataTools, LifeCycleRegistry lifecycle, LeaderServiceTask leaderServiceTask,
                              MetricRegistry metricRegistry, @DelegateCompactionControl CompactionControlSource compactionControlSource, DataCenters dataCenters) {
         super(curator, LEADER_DIR, selfHostAndPort.toString(), SERVICE_NAME, 1, TimeUnit.MINUTES,
-                new Supplier<Service>() {
-                    @Override
-                    public Service get() {
-                        return new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO,
-                                scanWriterGenerator, stashStateListener, scanCountListener, dataTools, compactionControlSource, dataCenters);
-                    }
-                });
+                () -> new LocalScanUploadMonitor(scanWorkflow, scanStatusDAO,
+                        scanWriterGenerator, stashStateListener, scanCountListener, dataTools, compactionControlSource, dataCenters));
 
         ServiceFailureListener.listenTo(this, metricRegistry);
         leaderServiceTask.register(SERVICE_NAME, this);
