@@ -14,12 +14,10 @@ import com.bazaarvoice.emodb.web.scanner.notifications.ScanCountListener;
 import com.bazaarvoice.emodb.web.scanner.scanstatus.ScanStatus;
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Supplier;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.AbstractService;
-import com.google.common.util.concurrent.Service;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Inject;
 import org.apache.curator.framework.CuratorFramework;
@@ -54,12 +52,7 @@ public class ScanUploadSchedulingService extends LeaderService {
                                        final MetricRegistry metricRegistry,
                                        final Clock clock) {
         super(curator, LEADER_DIR, selfHostAndPort.toString(), SERVICE_NAME, 1, TimeUnit.MINUTES,
-                new Supplier<Service>() {
-                    @Override
-                    public Service get() {
-                        return new DelegateSchedulingService(scanUploader, stashRequestManager, scheduledScans, scanCountListener, clock);
-                    }
-                });
+                () -> new DelegateSchedulingService(scanUploader, stashRequestManager, scheduledScans, scanCountListener, clock));
 
         ServiceFailureListener.listenTo(this, metricRegistry);
         leaderServiceTask.register(SERVICE_NAME, this);

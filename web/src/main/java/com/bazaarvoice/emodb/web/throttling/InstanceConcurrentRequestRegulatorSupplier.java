@@ -1,7 +1,7 @@
 package com.bazaarvoice.emodb.web.throttling;
 
-import com.sun.jersey.spi.container.ContainerRequest;
 
+import org.glassfish.jersey.server.ContainerRequest;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
