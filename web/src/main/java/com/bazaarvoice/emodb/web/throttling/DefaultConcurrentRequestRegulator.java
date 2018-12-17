@@ -5,9 +5,9 @@ import com.google.common.base.Strings;
 
 import javax.annotation.Nullable;
 import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.Response;
 import java.util.concurrent.Semaphore;
-import org.glassfish.jersey.server.ContainerRequest;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -32,19 +32,19 @@ public class DefaultConcurrentRequestRegulator implements ConcurrentRequestRegul
     }
 
     @Override
-    public void throttle(ContainerRequest request) {
+    public void throttle(ContainerRequestContext request) {
         if (!_semaphore.tryAcquire()) {
             if (_throttlingMeter != null) {
                 _throttlingMeter.mark();
             }
-            String response = String.format("Too many concurrent requests for %s. Try again later.", request.getPath(true));
+            String response = String.format("Too many concurrent requests for %s. Try again later.", request.getUriInfo().getPath());
             throw new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE).entity(response).build());
         }
         request.setProperty(_semaphoreProperty, _semaphore);
     }
 
     @Override
-    public void release(ContainerRequest request) {
+    public void release(ContainerRequestContext request) {
         Semaphore semaphore = (Semaphore) request.getProperty(_semaphoreProperty);
         if (semaphore != null) {
             semaphore.release();

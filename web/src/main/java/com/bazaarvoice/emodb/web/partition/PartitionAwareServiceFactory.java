@@ -15,7 +15,6 @@ import com.google.common.collect.Maps;
 import com.google.common.net.HostAndPort;
 import com.google.common.reflect.AbstractInvocationHandler;
 import com.google.common.reflect.Reflection;
-import com.sun.jersey.api.client.ClientHandlerException;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -114,10 +113,10 @@ public class PartitionAwareServiceFactory<S> implements MultiThreadedServiceFact
                     // If the exception was due to connection issues and not necessarily the target let the caller know.
                     // It's possible the connection timed out due to a problem on the target, but from our perspective
                     // there's no definitive way of knowing.
-                    if (targetException instanceof ClientHandlerException) {
-                        _errorMeter.mark();
-                        throw new PartitionForwardingException("Failed to handle request at endpoint", targetException.getCause());
-                    }
+//                    if (targetException instanceof ClientHandlerException) {
+//                        _errorMeter.mark();
+//                        throw new PartitionForwardingException("Failed to handle request at endpoint", targetException.getCause());
+//                    }
                     throw Throwables.propagate(targetException);
                 }
             }

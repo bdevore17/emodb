@@ -1,6 +1,6 @@
 package com.bazaarvoice.emodb.web.throttling;
 
-import org.glassfish.jersey.server.ContainerRequest;
+import javax.ws.rs.container.ContainerRequestContext;
 
 /**
  * Base interface for providing a {@link ConcurrentRequestRegulator} based on the request.  Typically the regulator
@@ -8,5 +8,5 @@ import org.glassfish.jersey.server.ContainerRequest;
  */
 public interface ConcurrentRequestRegulatorSupplier {
 
-    ConcurrentRequestRegulator forRequest(ContainerRequest request);
+    ConcurrentRequestRegulator forRequest(ContainerRequestContext request);
 }

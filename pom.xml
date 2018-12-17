@@ -65,9 +65,9 @@
         <module>web</module>
         <module>web-local</module>
         <module>sdk</module>
-        <module>quality</module>
+        <!--<module>quality</module>-->
         <module>yum</module>
-        <module>mapreduce</module>
+        <!--<module>mapreduce</module>-->
     </modules>
 
 </project>

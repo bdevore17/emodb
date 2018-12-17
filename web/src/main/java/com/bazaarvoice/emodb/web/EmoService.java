@@ -75,6 +75,7 @@ import com.google.inject.TypeLiteral;
 import io.dropwizard.Application;
 import io.dropwizard.configuration.ConfigurationException;
 import io.dropwizard.configuration.ConfigurationFactory;
+import io.dropwizard.configuration.YamlConfigurationFactory;
 import io.dropwizard.lifecycle.ServerLifecycleListener;
 import io.dropwizard.setup.Bootstrap;
 import io.dropwizard.setup.Environment;
@@ -138,8 +139,10 @@ public class EmoService extends Application<EmoConfiguration> {
         String[] first3Args = (String[]) ArrayUtils.subarray(args, 0, Math.min(args.length, 3));
         Namespace result = parser.parseArgs(first3Args);
 
+        System.out.println(result.toString());
+
         // Remove config-ddl arg
-        new EmoService(result.getString("config-ddl"), new File(result.getString("emo-config")))
+        new EmoService(result.getString("config_ddl"), new File(result.getString("emo_config")))
                 .run((String[]) ArrayUtils.remove(args, 2));
     }
 
@@ -235,8 +238,7 @@ public class EmoService extends Application<EmoConfiguration> {
 
         // Add a filter to provide finer 5xx metrics than the default DropWizard metrics include.
         //noinspection unchecked
-        _environment.jersey().getResourceConfig().getContainerResponseFilters()
-                .add(new ServerErrorResponseMetricsFilter(_environment.metrics()));
+        _environment.jersey().getResourceConfig().register(new ServerErrorResponseMetricsFilter(_environment.metrics()));
     }
 
     private void evaluateInvalidateCaches()
@@ -384,12 +386,10 @@ public class EmoService extends Application<EmoConfiguration> {
 
         // Add a resource factory that creates throttling related Resource Filters for appropriate resource methods
         //noinspection unchecked
-        _environment.jersey().getResourceConfig().getResourceFilterFactories().add(new ThrottlingFilterFactory(_environment.metrics()));
+        _environment.jersey().getResourceConfig().register(new ThrottlingFilterFactory(_environment.metrics()));
 
         //noinspection unchecked
-        _environment.jersey().getResourceConfig().getContainerRequestFilters().add(adHocThrottleFilter);
-        //noinspection unchecked
-        _environment.jersey().getResourceConfig().getContainerResponseFilters().add(adHocThrottleFilter);
+        _environment.jersey().getResourceConfig().register(adHocThrottleFilter);
     }
 
     private void evaluateSecurity() {
@@ -469,7 +469,7 @@ public class EmoService extends Application<EmoConfiguration> {
             throws IOException, ConfigurationException {
         Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
         ObjectMapper mapper = EmoServiceObjectMapperFactory.build(new YAMLFactory());
-        ConfigurationFactory<EmoConfiguration> configurationFactory = new ConfigurationFactory(EmoConfiguration.class, validator, mapper, "dw");
+        ConfigurationFactory<EmoConfiguration> configurationFactory = new YamlConfigurationFactory<>(EmoConfiguration.class, validator, mapper, "dw");
         return configurationFactory.build(configFile);
     }
 }

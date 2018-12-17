@@ -29,77 +29,62 @@ public class EmoConfiguration extends Configuration {
     private EmoServiceMode _serviceMode;
 
     @Valid
-    @NotNull
     @JsonProperty("cluster")
     private String _cluster;
 
     @Valid
-    @NotNull
     @JsonProperty("_systemTablePlacement")
     private String _systemTablePlacement;
 
     @Valid
-    @NotNull
     @JsonProperty("systemOfRecord")
     private DataStoreConfiguration _dataStoreConfiguration;
 
     @Valid
-    @NotNull
     @JsonProperty("databus")
     private DatabusConfiguration _databusConfiguration;
 
     @Valid
-    @NotNull
     @JsonProperty("blobStore")
     private BlobStoreConfiguration _blobStoreConfiguration;
 
     @Valid
-    @NotNull
     @JsonProperty("queueService")
     private QueueConfiguration _queueConfiguration;
 
     @Valid
-    @NotNull
     @JsonProperty("dataCenter")
     private DataCenterConfiguration _dataCenterConfiguration = new DataCenterConfiguration();
 
     @Valid
-    @NotNull
     @JsonProperty("cqlDriver")
     private CqlDriverConfiguration _cqlDriverConfiguration = new CqlDriverConfiguration();
 
     @Valid
-    @NotNull
     @JsonProperty("jobs")
     private JobConfiguration _jobConfiguration = new JobConfiguration();
 
     @Valid
-    @NotNull
     @JsonProperty("auth")
     private AuthorizationConfiguration _authorizationConfiguration = new AuthorizationConfiguration();
 
     @Valid
-    @NotNull
     @JsonProperty("zooKeeper")
     private ZooKeeperConfiguration _zooKeeperConfiguration = new ZooKeeperConfiguration();
 
     @Valid
-    @NotNull
     @JsonProperty("httpClient")
     private JerseyClientConfiguration _httpClientConfiguration = new JerseyClientConfiguration();
 
     @Valid
-    @NotNull
     @JsonProperty ("scanner")
     private Optional<ScannerConfiguration> _scanner = Optional.absent();
 
     @Valid
-    @NotNull
     @JsonProperty ("deltaMigrator")
     private Optional<MigratorConfiguration> _migrator = Optional.absent();
 
     @Valid
-    @NotNull
     @JsonProperty ("serverStartedListeners")
     private List<PluginConfiguration> _serverStartedListenerPluginConfigurations = ImmutableList.of();
 
