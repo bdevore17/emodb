@@ -234,7 +234,7 @@ auth:
 server:
   applicationConnectors:
     - type: instrumentedHttp
-      port: 8080
+      port: 8085
   adminConnectors:
     - type: instrumentedHttp
       port: 8081
