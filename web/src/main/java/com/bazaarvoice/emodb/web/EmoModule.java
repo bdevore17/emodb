@@ -294,7 +294,7 @@ public class EmoModule extends AbstractModule {
         /** Configure the HTTP client for out-bound HTTP calls. */
         @Provides @Singleton
         Client provideJerseyClient(JerseyClientConfiguration configuration, Environment environment) {
-            return new JerseyClientBuilder(environment).using(configuration).using(environment).build("emodb");
+            return new JerseyClientBuilder(environment).using(configuration).build("emodb");
         }
 
         private Class<? extends TaskRegistry> getTaskRegistryClass() {

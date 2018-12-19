@@ -16,7 +16,7 @@
     <name>EmoDB RESTful Web Server</name>
 
     <properties>
-        <swagger.version>1.5.8</swagger.version>
+        <swagger.version>1.5.21</swagger.version>
     </properties>
 
     <dependencies>
