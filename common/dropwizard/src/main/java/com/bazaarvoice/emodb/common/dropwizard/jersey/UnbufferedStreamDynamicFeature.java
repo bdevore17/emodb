@@ -14,17 +14,19 @@ import javax.ws.rs.core.FeatureContext;
  * necessary for {@link UnbufferedStreamFilter} to serve the content unbuffered.
  */
 
-public class UnbufferedStreamResourceFilter implements DynamicFeature, ContainerResponseFilter {
+public class UnbufferedStreamDynamicFeature implements DynamicFeature {
     @Override
     public void configure(ResourceInfo resourceInfo, FeatureContext context) {
         if (resourceInfo.getResourceClass().getAnnotation(Unbuffered.class) != null
                 || resourceInfo.getResourceMethod().getAnnotation(Unbuffered.class) != null) {
-            context.register(this);
+            context.register(UnbufferedStreamResourceFilter.class);
         }
     }
 
-    @Override
-    public void filter(ContainerRequestContext requestContext, ContainerResponseContext responseContext) throws IOException {
-        responseContext.getHeaders().putSingle(UnbufferedStreamFilter.UNBUFFERED_HEADER, "true");
+    private static class UnbufferedStreamResourceFilter implements ContainerResponseFilter {
+        @Override
+        public void filter(ContainerRequestContext requestContext, ContainerResponseContext responseContext) throws IOException {
+            responseContext.getHeaders().putSingle(UnbufferedStreamFilter.UNBUFFERED_HEADER, "true");
+        }
     }
 }

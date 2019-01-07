@@ -7,7 +7,7 @@ import com.bazaarvoice.emodb.common.dropwizard.discovery.ManagedRegistration;
 import com.bazaarvoice.emodb.common.dropwizard.discovery.ResourceRegistry;
 import com.bazaarvoice.emodb.common.dropwizard.jersey.ServerErrorResponseMetricsFilter;
 import com.bazaarvoice.emodb.common.dropwizard.jersey.UnbufferedStreamFilter;
-import com.bazaarvoice.emodb.common.dropwizard.jersey.UnbufferedStreamResourceFilter;
+import com.bazaarvoice.emodb.common.dropwizard.jersey.UnbufferedStreamDynamicFeature;
 import com.bazaarvoice.emodb.common.dropwizard.leader.LeaderServiceTask;
 import com.bazaarvoice.emodb.common.dropwizard.metrics.EmoGarbageCollectorMetricSet;
 import com.bazaarvoice.emodb.common.dropwizard.service.EmoServiceMode;
@@ -200,7 +200,7 @@ public class EmoService extends Application<EmoConfiguration> {
 
         // Configure support for streaming JSON responses without long delays due to buffering
         //noinspection unchecked
-        environment.jersey().getResourceConfig().register(UnbufferedStreamFilter.class);
+        environment.jersey().getResourceConfig().register(UnbufferedStreamDynamicFeature.class);
         environment.getApplicationContext().addFilter(new FilterHolder(new UnbufferedStreamFilter()), "/*", EnumSet.of(DispatcherType.REQUEST));
 
         // Create all the major EmoDB components using Guice.  Note: This code is organized such that almost all
