@@ -4,6 +4,7 @@ import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import javax.ws.rs.Priorities;
 import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.container.ContainerRequestFilter;
 import javax.ws.rs.container.DynamicFeature;
@@ -63,28 +64,36 @@ public class AuthDynamicFeature implements DynamicFeature {
 
     @Override
     public void configure(ResourceInfo resourceInfo, FeatureContext context) {
-        LinkedList<ContainerRequestFilter> filters = Lists.newLinkedList();
+        LinkedList<PrioritizedContainerRequestFilter> filters = Lists.newLinkedList();
 
         // Check the resource
         RequiresPermissions permAnnotation = resourceInfo.getResourceClass().getAnnotation(RequiresPermissions.class);
         if (permAnnotation != null) {
-            filters.add(new AuthorizationResourceFilter(ImmutableList.copyOf(permAnnotation.value()), permAnnotation.logical(), createSubstitutionMap(permAnnotation, resourceInfo)));
+            filters.add(new PrioritizedContainerRequestFilter(
+                    new AuthorizationResourceFilter(ImmutableList.copyOf(permAnnotation.value()),
+                            permAnnotation.logical(), createSubstitutionMap(permAnnotation, resourceInfo)),
+                    Priorities.AUTHORIZATION));
         }
 
         // Check the method
         permAnnotation = resourceInfo.getResourceMethod().getAnnotation(RequiresPermissions.class);
         if (permAnnotation != null) {
-            filters.add(new AuthorizationResourceFilter(ImmutableList.copyOf(permAnnotation.value()), permAnnotation.logical(), createSubstitutionMap(permAnnotation, resourceInfo)));
+            filters.add(new PrioritizedContainerRequestFilter(
+                    new AuthorizationResourceFilter(ImmutableList.copyOf(permAnnotation.value()),
+                            permAnnotation.logical(), createSubstitutionMap(permAnnotation, resourceInfo)),
+                    Priorities.AUTHORIZATION));
         }
 
-        // If we're doing authorization or if authentication is explicitly requested then add it as the first filter
+        // If we're doing authorization or if authentication is explicitly requested then add it as a higher priority filter
         if (!filters.isEmpty() ||
                 resourceInfo.getResourceClass().getAnnotation(RequiresAuthentication.class) != null ||
                 resourceInfo.getResourceMethod().getAnnotation(RequiresAuthentication.class) != null) {
-            filters.addFirst(new AuthenticationResourceFilter(_securityManager, _tokenGenerator));
+            filters.add(new PrioritizedContainerRequestFilter(
+                    new AuthenticationResourceFilter(_securityManager, _tokenGenerator),
+                    Priorities.AUTHENTICATION));
         }
 
-        filters.forEach(context::register);
+        filters.forEach(filter -> context.register(filter.getFilter(), filter.getPriority()));
 
     }
 
@@ -207,5 +216,23 @@ public class AuthDynamicFeature implements DynamicFeature {
                 return values.get(0);
             }
         };
+    }
+
+    private static class PrioritizedContainerRequestFilter {
+        private final ContainerRequestFilter _filter;
+        private final int _priority;
+
+        public PrioritizedContainerRequestFilter(ContainerRequestFilter filter, int priority) {
+            _filter = checkNotNull(filter);
+            _priority = priority;
+        }
+
+        public ContainerRequestFilter getFilter() {
+            return _filter;
+        }
+
+        public int getPriority() {
+            return _priority;
+        }
     }
 }
