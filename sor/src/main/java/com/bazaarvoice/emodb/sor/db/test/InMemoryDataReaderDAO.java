@@ -28,8 +28,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.RateLimiter;
 import java.util.concurrent.TimeoutException;
-import org.apache.cassandra.dht.ByteOrderedPartitioner;
-import org.apache.cassandra.dht.Token;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 
@@ -148,7 +146,7 @@ public class InMemoryDataReaderDAO implements DataReaderDAO, DataWriterDAO, Migr
 
     @Override
     public Iterator<Change> getExistingHistories(Key key, UUID start, UUID end, ReadConsistency consistency) {
-        return Iterators.emptyIterator();
+        return Collections.emptyIterator();
     }
 
     @Override
@@ -179,7 +177,7 @@ public class InMemoryDataReaderDAO implements DataReaderDAO, DataWriterDAO, Migr
     public Iterator<MultiTableScanResult> multiTableScan(MultiTableScanOptions query, TableSet tables, LimitCounter limit,
                                                          ReadConsistency consistency, @Nullable Instant cutoffTime) {
         // TODO:  Create a simulation for this method
-        return Iterators.emptyIterator();
+        return Collections.emptyIterator();
     }
 
     @Override
