@@ -326,7 +326,7 @@ public class BlobStoreResource1 {
         response.lastModified(metadata.getTimestamp());
 
         // Put the MD5 in Content-MD5 (http spec says must be base64), SHA1 hash in ETAG (use hex)
-        response.header(com.google.common.net.HttpHeaders.CONTENT_MD5, hexToBase64(metadata.getMD5()));
+        response.header(com.google.common.net.HttpHeaders.CONTENT_MD5, metadata.getMD5());
         response.header(HttpHeaders.ETAG, '"' + metadata.getSHA1() + '"');
 
         // Default to a binary "Content-Type" header.
