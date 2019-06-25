@@ -1,9 +1,15 @@
 package com.bazaarvoice.megabus.kip;
 
+import com.google.common.base.Function;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.KeyValue;
@@ -16,10 +22,12 @@ import org.apache.kafka.streams.kstream.ValueMapper;
 import org.apache.kafka.streams.kstream.ValueTransformer;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StreamPartitioner;
+import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 public class ForeignKeyJoiner {
 
@@ -30,30 +38,115 @@ public class ForeignKeyJoiner {
                                                                          Serde<K> leftKeySerde,
                                                                          Serde<V> leftValueSerde,
                                                                          Serde<K0> rightKeySerde,
-                                                                         Serde<V0> rightValueSerde,
-                                                                         Serde<VR> joinedValueSerde) {
+                                                                         Serde<V0> rightValueSerde) {
+
+        JoinCoordinateSerde<K, K0> joinCoordinateSerde = new JoinCoordinateSerde<>(leftKeySerde, rightKeySerde);
+
         StoreBuilder<KeyValueStore<K, K0>> previousForeignKeyStore = Stores
                 .keyValueStoreBuilder(Stores.persistentKeyValueStore("previousForeignKeyState"),
                         leftKeySerde,
                         rightKeySerde);
 
-        StoreBuilder<KeyValueStore<K, K0>> joinStore = Stores
+        StoreBuilder<KeyValueStore<JoinCoordinate<K, K0>, byte[]>> joinStore = Stores
                 .keyValueStoreBuilder(Stores.persistentKeyValueStore("joinStore"),
-                        leftKeySerde,
-                        rightKeySerde);
+                        joinCoordinateSerde,
+                        Serdes.ByteArray());
+
 
         KStream<JoinCoordinate<K, K0>, MessageWithSourceAndHeaders> leftStream = leftTable.toStream()
                 .flatTransform(() -> new ForeignKeyMessageRouter<>(foreignKeyExtractor), "previousForeignKeyState")
                 .transformValues(() -> new HeaderAddingTransformer<>())
                 .map((key, value) -> new KeyValue<>(new JoinCoordinate<>(key, value.getForeignKey()), value.getValue()))
-                .through("intermediate-join", Produced.with(new JoinCoordinateSerde<>(leftKeySerde, rightKeySerde), leftValueSerde, new ForeignKeyPartitioner<>(rightKeySerde.serializer())))
-                .transformValues(() -> new MessageSourceTopicLineageTransformer<>(SourceTopic.LEFT));
+                .through("intermediate-join", Produced.with(joinCoordinateSerde, leftValueSerde, new ForeignKeyPartitioner<>(rightKeySerde.serializer())))
+                .transformValues(() -> new MessageSourceTopicLineageTransformer<>(SourceTopic.LEFT, leftValueSerde.serializer()));
 
         KStream<JoinCoordinate<K, K0>, MessageWithSourceAndHeaders> rightStream = rightTable.toStream()
-                .transformValues(() -> new MessageSourceTopicLineageTransformer<>(SourceTopic.RIGHT))
+                .transformValues(() -> new MessageSourceTopicLineageTransformer<>(SourceTopic.RIGHT, rightValueSerde.serializer()))
                 .map((key, value) -> new KeyValue<>(new JoinCoordinate<>(null, key), value));
-        
-        return null;
+
+        return leftStream.merge(rightStream)
+                .flatTransform(() -> new JoinTransformer<>(joiner, joinCoordinateSerde, leftValueSerde, rightValueSerde));
+
+    }
+
+    private static class JoinTransformer<K, K0, V, V0, VR> implements Transformer<JoinCoordinate<K, K0>, MessageWithSourceAndHeaders, Iterable<KeyValue<K, VR>>> {
+
+        private ProcessorContext context;
+        private KeyValueStore<JoinCoordinate<K, K0>, byte[]> state;
+
+        private final ValueJoiner<V, V0, VR> valueJoiner;
+
+        private final JoinCoordinateSerde<K, K0> joinCoordinateSerde;
+
+        private final Serde<V> leftValueSerde;
+        private final Serde<V0> rightValueSerde;
+
+        public JoinTransformer(ValueJoiner<V, V0, VR> valueJoiner, JoinCoordinateSerde<K, K0> joinCoordinateSerde,
+                               Serde<V> leftValueSerde, Serde<V0> rightValueSerde) {
+            this.valueJoiner = valueJoiner;
+            this.joinCoordinateSerde = joinCoordinateSerde;
+            this.leftValueSerde = leftValueSerde;
+            this.rightValueSerde = rightValueSerde;
+        }
+
+        @Override
+        public void init(ProcessorContext context) {
+            this.context = context;
+            this.state = (KeyValueStore<JoinCoordinate<K, K0>, byte[]>) context.getStateStore("previousForeignKeyState");
+        }
+
+        @Override
+        public Iterable<KeyValue<K, VR>> transform(JoinCoordinate<K, K0> key, MessageWithSourceAndHeaders message) {
+            checkNotNull(message.getSourceTopic());
+            Iterator<KeyValue<K, V>> left;
+            V0 right;
+            Runnable closeLeft;
+
+            if (message.getSourceTopic() == SourceTopic.LEFT) {
+                if (message.isRemoveOnly()) {
+                    checkArgument(message.getValue() == null);
+                    state.delete(key);
+                    return Collections.emptySet();
+                } else if (message.getValue() == null) {
+                    state.delete(key);
+                    return Collections.singleton(new KeyValue<>(key.getKey(), null));
+                } else {
+                    state.put(key, message.getValue());
+                    right = rightValueSerde.deserializer().deserialize(null, state.get(new JoinCoordinate<>(null, key.getForeignKey())));
+                    left = Collections.singleton(new KeyValue<K, V>(key.getKey(), leftValueSerde.deserializer().deserialize(null, message.getValue()))).iterator();
+                    closeLeft = () -> {};
+                }
+            } else {
+                checkArgument(!message.isRemoveOnly());
+                if (message.getValue() == null) {
+                    state.delete(key);
+                    right = null;
+                } else {
+                    state.put(key, message.getValue());
+                    right = rightValueSerde.deserializer().deserialize(null, message.getValue());
+                }
+
+                KeyValueIterator<JoinCoordinate<K, K0>, byte[]> keyValueIterator =
+                        state.range(key, joinCoordinateSerde.foreignKeyPlusOne(key));
+                Iterator<KeyValue<JoinCoordinate<K, K0>, byte[]>> filteredIterator =
+                        Iterators.filter(keyValueIterator, kv -> kv.key.getForeignKey().equals(key.getForeignKey()));
+                left = Iterators.transform(filteredIterator, kv -> new KeyValue(kv.key.getKey(), kv.value));
+                closeLeft = keyValueIterator::close;
+            }
+
+            List<KeyValue<K ,VR>> results = new ArrayList<>();
+            while (left.hasNext()) {
+                KeyValue<K, V> leftValue = left.next();
+                results.add(new KeyValue<>(leftValue.key, valueJoiner.apply(leftValue.value, right)));
+            }
+            closeLeft.run();
+            return results;
+        }
+
+        @Override
+        public void close() {
+
+        }
     }
 
     private enum SourceTopic {
@@ -65,9 +158,11 @@ public class ForeignKeyJoiner {
 
         private final SourceTopic sourceTopic;
         private ProcessorContext context;
+        private Serializer<VA> valueSerializer;
 
-        public MessageSourceTopicLineageTransformer(SourceTopic sourceTopic) {
+        public MessageSourceTopicLineageTransformer(SourceTopic sourceTopic, Serializer<VA> valueSerializer) {
             this.sourceTopic = sourceTopic;
+            this.valueSerializer = valueSerializer;
         }
 
         @Override
@@ -80,7 +175,7 @@ public class ForeignKeyJoiner {
             boolean removeOnly = context.headers().headers(RemoveHeader.INSTANCE.key()).iterator().hasNext();
             checkArgument(value != null || removeOnly);
 
-            return new MessageWithSourceAndHeaders(sourceTopic, removeOnly, value);
+            return new MessageWithSourceAndHeaders(sourceTopic, removeOnly, valueSerializer.serialize(null, value));
         }
 
         @Override
@@ -92,9 +187,9 @@ public class ForeignKeyJoiner {
     private static class MessageWithSourceAndHeaders {
         private SourceTopic sourceTopic;
         private boolean removeOnly;
-        private Object value;
+        private byte[] value;
 
-        public MessageWithSourceAndHeaders(SourceTopic sourceTopic, boolean removeOnly, Object value) {
+        public MessageWithSourceAndHeaders(SourceTopic sourceTopic, boolean removeOnly, byte[] value) {
             this.sourceTopic = sourceTopic;
             this.removeOnly = removeOnly;
             this.value = value;
@@ -108,7 +203,7 @@ public class ForeignKeyJoiner {
             return removeOnly;
         }
 
-        public Object getValue() {
+        public byte[] getValue() {
             return value;
         }
     }

@@ -1,5 +1,6 @@
 package com.bazaarvoice.megabus.kip;
 
+import java.util.Arrays;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serializer;
@@ -152,6 +153,36 @@ public class JoinCoordinateSerde<K, K0> implements Serde<JoinCoordinate<K, K0>> 
             foreignKeyDeserializer.close();
             primaryKeyDeserializer.close();
         }
+    }
+
+    public JoinCoordinate<K, K0> foreignKeyPlusOne(JoinCoordinate<K, K0> joinCoordinate) {
+        final byte[] incrementedForeignKeyBytes = increment(foreignKeySerializer.serialize(null, joinCoordinate.getForeignKey()));
+        final K0 incrementedForeignKey = foreignKeyDeserializer.deserialize(null, incrementedForeignKeyBytes);
+        return new JoinCoordinate<>(null, incrementedForeignKey);
+    }
+
+    /**
+     * Increment the underlying byte array by adding 1.
+     *
+     * @param input - The byte array to increment
+     * @return A new copy of the incremented byte array.
+     */
+    private static byte[] increment(byte[] input) {
+        byte[] inputArr = input;
+        byte[] ret = new byte[inputArr.length + 1];
+        int carry = 1;
+        for(int i = inputArr.length-1; i >= 0; i--) {
+            if (inputArr[i] == (byte)0xFF && carry == 1) {
+                ret[i] = (byte)0x00;
+            } else {
+                ret[i] = (byte)(inputArr[i] + carry);
+                carry = 0;
+            }
+        }
+        if (carry == 0)
+            return Arrays.copyOf(ret, inputArr.length);
+        ret[0] = 1;
+        return ret;
     }
 
 
