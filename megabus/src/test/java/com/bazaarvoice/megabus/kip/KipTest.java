@@ -3,9 +3,13 @@ package com.bazaarvoice.megabus.kip;
 import com.bazaarvoice.emodb.kafka.JsonPOJOSerde;
 import java.util.Collections;
 import java.util.Properties;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -27,7 +31,7 @@ public class KipTest {
         KTable<String, Product> productTable = builder.table("product", Consumed.with(Serdes.String(), new JsonPOJOSerde<>(Product.class)));
 
         ForeignKeyJoiner.leftJoinOnForeignKey(builder, reviewTable, productTable, Review::getProductId,
-                (review, product) -> new ReviewWithProductName(review.getRating(), product.getName()),
+                (review, product) -> new ReviewWithProductName(review.getRating(), product != null ? product.getName() : null),
                 Serdes.String(), new JsonPOJOSerde<>(Review.class),
                 Serdes.String(), new JsonPOJOSerde<>(Product.class))
         .to("joinStream", Produced.with(Serdes.String(), new JsonPOJOSerde<>(ReviewWithProductName.class)));
@@ -42,20 +46,40 @@ public class KipTest {
 
         TopologyTestDriver testDriver = new TopologyTestDriver(topology, props);
 
-//        AdminClient adminClient = AdminClient.create(properties);
-//        NewTopic reviewTopic = new NewTopic("review", 8,(short) 1);
-//        adminClient.createTopics(Collections.singleton(reviewTopic));
+        ConsumerRecordFactory<String, Product> productFactory = new ConsumerRecordFactory<>("product", new StringSerializer(), new JsonPOJOSerde<>(Product.class).serializer());
+        ConsumerRecordFactory<String, Review> reviewFactory = new ConsumerRecordFactory<>("review", new StringSerializer(), new JsonPOJOSerde<>(Review.class).serializer());
 
-        ConsumerRecordFactory<String, Review> factory = new ConsumerRecordFactory<>("review", new StringSerializer(), new JsonPOJOSerde<>(Review.class).serializer());
-        testDriver.pipeInput(factory.create("review", "review1", new Review(5, "product1")));
+        testDriver.pipeInput(productFactory.create("product", "product1", new Product("a name")));
+        testDriver.pipeInput(reviewFactory.create("review", "review1", new Review(1, "product1")));
+        testDriver.pipeInput(productFactory.create("product", "product1", new Product("another name")));
+        testDriver.pipeInput(reviewFactory.create("review", "review1", new Review(1, "product2")));
+        testDriver.pipeInput(productFactory.create("product", "product2", new Product("anothernother name")));
+        testDriver.pipeInput(reviewFactory.create("review", "review2", new Review(2, "product2")));
+        testDriver.pipeInput(reviewFactory.create("review", "review3", new Review(3, "product1")));
+        testDriver.pipeInput(productFactory.create("product", "product2", new Product("final name")));
+        testDriver.pipeInput(productFactory.create("product", "product1", null));
+        testDriver.pipeInput(reviewFactory.create("review", "review3", null));
+        testDriver.pipeInput(reviewFactory.create("review", "review4", null));
+        testDriver.pipeInput(productFactory.create("product", "product4", new Product("name 4")));
+        testDriver.pipeInput(reviewFactory.create("review", "review4", new Review(4, "product4")));
+        testDriver.pipeInput(reviewFactory.create("review", "review5", new Review(5, "product5")));
+
+        ProducerRecord<byte[], byte[]> result;
+        do {
+            result = testDriver.readOutput("joinStream");
+            if (result != null) {
+                System.out.println("key: " + (result.key() == null ? null : new String(result.key())) + ", value: " + (result.value() == null ? null : new String(result.value())));
+            }
+        } while (result != null);
 
     }
 
-    private class ReviewWithProductName {
+    private static class ReviewWithProductName {
         private int rating;
         private String productName;
 
-        public ReviewWithProductName(int rating, String productName) {
+        @JsonCreator
+        public ReviewWithProductName(@JsonProperty("rating") int rating, @JsonProperty("productName") String productName) {
             this.rating = rating;
             this.productName = productName;
         }
@@ -77,11 +101,12 @@ public class KipTest {
         }
     }
 
-    private class Review {
+    private static class Review {
         private int rating;
         private String productId;
 
-        public Review(int rating, String productId) {
+        @JsonCreator
+        public Review(@JsonProperty("rating") int rating, @JsonProperty("productId") String productId) {
             this.rating = rating;
             this.productId = productId;
         }
@@ -103,10 +128,11 @@ public class KipTest {
         }
     }
 
-    private class Product {
+    private static class Product {
         private String name;
 
-        public Product(String name) {
+        @JsonCreator
+        public Product(@JsonProperty("name") String name) {
             this.name = name;
         }
 

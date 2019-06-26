@@ -27,6 +27,12 @@ import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreBuilder;
 import org.apache.kafka.streams.state.Stores;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -69,7 +75,7 @@ public class ForeignKeyJoiner {
                 .map((key, value) -> new KeyValue<>(new JoinCoordinate<>(null, key), value));
 
         return leftStream.merge(rightStream)
-                .flatTransform(() -> new JoinTransformer<>(joiner, joinCoordinateSerde, leftValueSerde, rightValueSerde));
+                .flatTransform(() -> new JoinTransformer<>(joiner, joinCoordinateSerde, leftValueSerde, rightValueSerde), "joinStore");
 
     }
 
@@ -96,7 +102,7 @@ public class ForeignKeyJoiner {
         @Override
         public void init(ProcessorContext context) {
             this.context = context;
-            this.state = (KeyValueStore<JoinCoordinate<K, K0>, byte[]>) context.getStateStore("previousForeignKeyState");
+            this.state = (KeyValueStore<JoinCoordinate<K, K0>, byte[]>) context.getStateStore("joinStore");
         }
 
         @Override
@@ -107,7 +113,7 @@ public class ForeignKeyJoiner {
             Runnable closeLeft;
 
             if (message.getSourceTopic() == SourceTopic.LEFT) {
-                if (message.isRemoveOnly()) {
+                if (message.isRemoveOnly() && message.getValue() == null) {
                     checkArgument(message.getValue() == null);
                     state.delete(key);
                     return Collections.emptySet();
@@ -133,8 +139,8 @@ public class ForeignKeyJoiner {
                 KeyValueIterator<JoinCoordinate<K, K0>, byte[]> keyValueIterator =
                         state.range(key, joinCoordinateSerde.foreignKeyPlusOne(key));
                 Iterator<KeyValue<JoinCoordinate<K, K0>, byte[]>> filteredIterator =
-                        Iterators.filter(keyValueIterator, kv -> kv.key.getForeignKey().equals(key.getForeignKey()));
-                left = Iterators.transform(filteredIterator, kv -> new KeyValue(kv.key.getKey(), kv.value));
+                        Iterators.filter(keyValueIterator, kv -> kv.key.getKey() != null && kv.key.getForeignKey().equals(key.getForeignKey()));
+                left = Iterators.transform(filteredIterator, kv -> new KeyValue<>(kv.key.getKey(), leftValueSerde.deserializer().deserialize(null, kv.value)));
                 closeLeft = keyValueIterator::close;
             }
 
@@ -177,7 +183,6 @@ public class ForeignKeyJoiner {
         @Override
         public MessageWithSourceAndHeaders transform(VA value) {
             boolean removeOnly = context.headers().headers(RemoveHeader.INSTANCE.key()).iterator().hasNext();
-            checkArgument(value != null || removeOnly);
 
             return new MessageWithSourceAndHeaders(sourceTopic, removeOnly, valueSerializer.serialize(null, value));
         }
@@ -316,7 +321,6 @@ public class ForeignKeyJoiner {
         private V value;
 
         public ForeignKeyRoutingAction(Action action, K0 foreignKey, V value) {
-            checkArgument(value != null || action == Action.REMOVE);
             this.action = action;
             this.foreignKey = foreignKey;
             this.value = value;
