@@ -13,6 +13,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.streams.KeyValue;
+import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.Produced;
@@ -31,7 +32,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 public class ForeignKeyJoiner {
 
-    public static <K, V, K0, V0, VR> KStream<K, VR> leftJoinOnForeignKey(KTable<K, V> leftTable,
+    public static <K, V, K0, V0, VR> KStream<K, VR> leftJoinOnForeignKey(StreamsBuilder streamsBuilder,
+                                                                         KTable<K, V> leftTable,
                                                                          KTable<K0, V0> rightTable,
                                                                          ValueMapper<V, K0> foreignKeyExtractor,
                                                                          ValueJoiner<V, V0, VR> joiner,
@@ -52,6 +54,8 @@ public class ForeignKeyJoiner {
                         joinCoordinateSerde,
                         Serdes.ByteArray());
 
+        streamsBuilder.addStateStore(previousForeignKeyStore);
+        streamsBuilder.addStateStore(joinStore);
 
         KStream<JoinCoordinate<K, K0>, MessageWithSourceAndHeaders> leftStream = leftTable.toStream()
                 .flatTransform(() -> new ForeignKeyMessageRouter<>(foreignKeyExtractor), "previousForeignKeyState")
