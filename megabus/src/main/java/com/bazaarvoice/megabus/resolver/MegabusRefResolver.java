@@ -17,6 +17,7 @@ import com.bazaarvoice.megabus.MegabusRefTopic;
 import com.bazaarvoice.megabus.MegabusTopic;
 import com.bazaarvoice.megabus.MissingRefTopic;
 import com.bazaarvoice.megabus.RetryRefTopic;
+import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -64,6 +65,9 @@ public class MegabusRefResolver extends AbstractService {
     private final Meter _redundantMeter;
     private final Meter _discardedMeter;
     private final Meter _pendingMeter;
+    private final Meter _resolvedMeter;
+
+    private final Histogram _batchSizeHistogram;
 
     private KafkaStreams _streams;
 
@@ -89,6 +93,9 @@ public class MegabusRefResolver extends AbstractService {
         _redundantMeter = metricRegistry.meter(getMetricName("redundantUpdates"));
         _discardedMeter = metricRegistry.meter(getMetricName("discardedUpdates"));
         _pendingMeter = metricRegistry.meter(getMetricName("pendingUpdates"));
+        _resolvedMeter = metricRegistry.meter(getMetricName("resolvedUpdates"));
+
+        _batchSizeHistogram = metricRegistry.histogram("refBatchSize");
 
         DropwizardMetricsReporter.registerDefaultMetricsRegistry(metricRegistry);
     }
@@ -121,6 +128,7 @@ public class MegabusRefResolver extends AbstractService {
 
         // merge the ref stream with the ref-retry stream. They must be merged into a single stream for ordering purposes
         final KStream<String, List<MegabusRef>> refStream = streamsBuilder.stream(_megabusRefTopic.getName(), Consumed.with(Serdes.String(), new JsonPOJOSerde<>(new TypeReference<List<MegabusRef>>() {})))
+                .peek((key, refList) -> _batchSizeHistogram.update(refList.size()))
                 .merge(streamsBuilder.stream(_retryRefTopic.getName(), Consumed.with(Serdes.String(), new JsonPOJOSerde<>(new TypeReference<List<MegabusRef>>() {}))));
 
         // resolve refs into documents
@@ -132,6 +140,8 @@ public class MegabusRefResolver extends AbstractService {
                 .flatMap((key, value) -> value.getKeyedResolvedDocs())
                 // convert deleted documents to null
                 .mapValues(doc -> !Intrinsic.isDeleted(doc) ? doc : null)
+                // mark resolution metric
+                .peek((k,v) -> _resolvedMeter.mark())
                 // send to megabus
                 .to(_megabusResolvedTopic.getName(), Produced.with(Serdes.String(), new JsonPOJOSerde<>(new TypeReference<Map<String, Object>>() {})));
 
