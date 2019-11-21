@@ -55,31 +55,34 @@ dataCenter:
   systemDataCenterServiceUri: http://localhost:8080
 
 kafka:
-  bootstrapServers: localhost:9092
-
+  bootstrapServers: b-2.perf-ben-meg-6.oxr2lf.c3.kafka.us-east-1.amazonaws.com:9092,b-3.perf-ben-meg-6.oxr2lf.c3.kafka.us-east-1.amazonaws.com:9092,b-1.perf-ben-meg-6.oxr2lf.c3.kafka.us-east-1.amazonaws.com:9092
 megabus:
-  applicationId: megabus-local
+  applicationId: megabus-ben-6
   megabusRefTopic:
-    name: emodb-internal-megabus-ref
+    name: emodb-internal-megabus-ben-6-ref
     partitions: 8
-    replicationFactor: 1
+    replicationFactor: 3
   megabusTopic:
-    name: emodb-megabus
+    name: emodb-ben-6-megabus
     partitions: 8
-    replicationFactor: 1
+    replicationFactor: 3
   missingRefTopic:
-    name: emodb-internal-megabus-ref-missing
+    name: emodb-internal-megabus-ben-6-ref-missing
     partitions: 8
-    replicationFactor: 1
+    replicationFactor: 3
   retryRefTopic:
-    name: emodb-internal-megabus-ref-retry
+    name: emodb-internal-megabus-ben-6-ref-retry
     partitions: 8
-    replicationFactor: 1
+    replicationFactor: 3
   boot:
-    queueServiceApiKey: local_admin
+    queueServiceApiKey: admin
     scanStatusTable: __system_megabus_boot
-    pendingScanRangeQueueName: megabus-boot-pending-scan-ranges
-    completeScanRangeQueueName: megabus-boot-complete-scan-ranges
+    pendingScanRangeQueueName: megabus-ben-6-boot-pending-scan-ranges
+    completeScanRangeQueueName: megabus-ben-6-boot-complete-scan-ranges
+  refProducer:
+    batchSize: 400
+    skipWaitThreshold: 300
+    pollIntervalMs: 250
 
 
 

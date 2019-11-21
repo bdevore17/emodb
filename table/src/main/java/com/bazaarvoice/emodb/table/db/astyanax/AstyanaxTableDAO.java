@@ -137,12 +137,12 @@ public class AstyanaxTableDAO implements TableDAO, MaintenanceDAO, StashTableDAO
     /**
      * The server updates its consistency timestamp value at most every 5 minutes.
      */
-    static final Duration MIN_CONSISTENCY_DELAY = Duration.ofMinutes(5);
+    static final Duration MIN_CONSISTENCY_DELAY = Duration.ofSeconds(20);
 
     /**
      * Time to wait for all readers to discover promote has occurred, time to support getSplit() calls w/old uuid.
      */
-    static final Duration MOVE_DEMOTE_TO_EXPIRE = Duration.ofDays(1);
+    static final Duration MOVE_DEMOTE_TO_EXPIRE = Duration.ofSeconds(30);
 
     /**
      * Delay between dropping a table and initial purge of all the data in the table, may miss late writes.
@@ -164,6 +164,7 @@ public class AstyanaxTableDAO implements TableDAO, MaintenanceDAO, StashTableDAO
     private final String _systemTable;
     private final String _systemTableUuid;
     private final String _systemTableUnPublishedDatabusEvents;
+    private final String _systemTableEventRegistry;
     private final String _selfDataCenter;
     private final int _defaultShardsLog2;
     private final BiMap<String, Long> _bootstrapTables;
@@ -222,11 +223,12 @@ public class AstyanaxTableDAO implements TableDAO, MaintenanceDAO, StashTableDAO
         _systemTableUuid = systemTableNamespace + ":table_uuid";
         String systemDataCenterTable = systemTableNamespace + ":data_center";
         _systemTableUnPublishedDatabusEvents = systemTableNamespace + ":table_unpublished_databus_events";
+        _systemTableEventRegistry = systemTableNamespace + ":table_event_registry";
 
         // If this table DAO uses itself to store its table metadata (ie. it requires bootstrap tables) then make sure
         // the right bootstrap tables are specified.  This happens when "_dataStore" uses "this" for table metadata.
         if (!_bootstrapTables.isEmpty()) {
-            Set<String> expectedTables = ImmutableSet.of(_systemTable, _systemTableUuid, systemDataCenterTable, _systemTableUnPublishedDatabusEvents);
+            Set<String> expectedTables = ImmutableSet.of(_systemTable, _systemTableUuid, systemDataCenterTable, _systemTableUnPublishedDatabusEvents, _systemTableEventRegistry);
             Set<String> diff = Sets.symmetricDifference(expectedTables, bootstrapTables.keySet());
             checkState(diff.isEmpty(), "Bootstrap tables map is missing tables or has extra tables: %s", diff);
         }
@@ -251,7 +253,7 @@ public class AstyanaxTableDAO implements TableDAO, MaintenanceDAO, StashTableDAO
     public void start()
             throws Exception {
         // Ensure the basic system tables exist.  For the DataStore these will be bootstrap tables.
-        for (String table : new String[] {_systemTable, _systemTableUuid, _systemTableUnPublishedDatabusEvents}) {
+        for (String table : new String[] {_systemTable, _systemTableUuid, _systemTableUnPublishedDatabusEvents, _systemTableEventRegistry}) {
             TableOptions options = new TableOptionsBuilder().setPlacement(_systemTablePlacement).build();
             Audit audit = new AuditBuilder().setComment("initial startup").setLocalHost().build();
             _backingStore.createTable(table, options, ImmutableMap.<String, Object>of(), audit);
@@ -416,6 +418,8 @@ public class AstyanaxTableDAO implements TableDAO, MaintenanceDAO, StashTableDAO
 
                         // No exceptions?  That means every data center knows about the new primary.
 
+                        // TODO: send a table notification
+
                         // The next step occurs in the same data center so no need to write/flush globally.
                         stateTransition(json, storage, from, PRIMARY, InvalidationScope.DATA_CENTER);
                     }
@@ -449,6 +453,8 @@ public class AstyanaxTableDAO implements TableDAO, MaintenanceDAO, StashTableDAO
                     public void run(Runnable ignored) {
                         // Perform a global write and cache invalidation to disable reads everywhere (getSplits).
                         stateTransition(json, storage, from, MIRROR_EXPIRED, InvalidationScope.GLOBAL);
+
+                        // TODO: send a table notification here
 
                         // No exceptions?  That means every data center knows the mirror has expired (reads are disabled).
 

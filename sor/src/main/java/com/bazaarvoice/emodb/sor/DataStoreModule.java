@@ -194,13 +194,14 @@ public class DataStoreModule extends PrivateModule {
             expose(StashTableDAO.class);
         }
 
-        // The system of record requires two bootstrap tables in which it stores its metadata about tables.
+        // The system of record requires five bootstrap tables in which it stores its metadata about tables.
         // The 64-bit UUID values were chosen at random.
         bind(new TypeLiteral<Map<String, Long>>() {}).annotatedWith(BootstrapTables.class).toInstance(ImmutableMap.of(
                 "__system_sor:table", 0x09d7f33f08984b67L,
                 "__system_sor:table_uuid", 0xab33556547b99d25L,
                 "__system_sor:data_center", 0x33f1f082cffc2c2fL,
-                "__system_sor:table_unpublished_databus_events", 0x44ab556547b99dffL));
+                "__system_sor:table_unpublished_databus_events", 0x44ab556547b99dffL,
+                "__system_sor:table_event_registry", 0xb0b2716384a93cc4L));
 
         // Bind all DAOs from the DAO module
         install(new DAOModule());

@@ -1,8 +1,14 @@
 package com.bazaarvoice.emodb.sor.db;
 
+import com.bazaarvoice.emodb.sor.condition.Condition;
+import com.bazaarvoice.emodb.sor.condition.Conditions;
+import com.bazaarvoice.emodb.sor.delta.Deltas;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import com.netflix.astyanax.serializers.StringSerializer;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import org.apache.commons.lang3.StringUtils;
 import org.testng.annotations.Test;
 
@@ -35,6 +41,23 @@ public class DeltaBlockingTest {
         }
 
         return encodedDeltas;
+    }
+
+    @Test
+    public void test() {
+        Clock _clock = Clock.systemUTC();
+        String registrationId = "MEGABUS_ID_HERE";
+        Instant now = _clock.instant();
+        Condition isExpired = Conditions.mapBuilder().matches("expirationTime", Conditions.le(now.toEpochMilli())).build();
+        Instant newExpirationTime = now.plus(1, ChronoUnit.DAYS);
+
+
+        System.out.println(Deltas.mapBuilder()
+                .update(registrationId, Deltas.mapBuilder()
+                        .put("expirationTime", newExpirationTime.toEpochMilli())
+                        .update("tasks", Deltas.conditional(isExpired, Deltas.literal(Collections.emptySet())))
+                        .build())
+                .build());
     }
 
     @Test
