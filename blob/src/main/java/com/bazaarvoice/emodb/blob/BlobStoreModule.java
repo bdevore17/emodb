@@ -4,6 +4,7 @@ import com.bazaarvoice.emodb.blob.api.BlobStore;
 import com.bazaarvoice.emodb.blob.core.BlobStoreProviderProxy;
 import com.bazaarvoice.emodb.blob.core.DefaultBlobStore;
 import com.bazaarvoice.emodb.blob.core.LocalBlobStore;
+import com.bazaarvoice.emodb.blob.core.S3BlobStore;
 import com.bazaarvoice.emodb.blob.core.SystemBlobStore;
 import com.bazaarvoice.emodb.blob.db.StorageProvider;
 import com.bazaarvoice.emodb.blob.db.astyanax.AstyanaxStorageProvider;
@@ -197,8 +198,8 @@ public class BlobStoreModule extends PrivateModule {
         }
 
         // Bind the BlobStore instance that the rest of the application will consume
-        bind(DefaultBlobStore.class).asEagerSingleton();
-        bind(BlobStore.class).annotatedWith(LocalBlobStore.class).to(DefaultBlobStore.class);
+        bind(S3BlobStore.class).asEagerSingleton();
+        bind(BlobStore.class).annotatedWith(LocalBlobStore.class).to(S3BlobStore.class);
         expose(BlobStore.class);
 
         // Bind any methods annotated with @ParameterizedTimed
